@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Math AZ — прототип «к концу года»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">A</span> AI Math AZ <span class="muted">· прототип «к концу года»</span></div>
+  <div class="seg" id="viewSeg">
+    <button data-action="view" data-v="both" class="on">Учитель + ученик</button>
+    <button data-action="view" data-v="teacher">Только учитель</button>
+    <button data-action="view" data-v="student">Только ученик</button>
+  </div>
+  <div class="legend"><span class="new">✦ новое</span> — функции, которые появятся к концу года</div>
+  <button class="ghost" data-action="reset">Сбросить</button>
+</header>
+<main id="stage" class="stage both">
+  <section id="teacher" class="teacher"></section>
+  <section id="studentWrap" class="student-wrap"></section>
+</main>
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
