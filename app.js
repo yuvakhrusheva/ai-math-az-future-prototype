@@ -58,6 +58,7 @@ function freshState() {
     reflection: {},
     hw: null,                              // {groups:{studentIdx:'errors'|'practice'|'bonus'}, confirmed}
     hwDone: STUDENTS.map(() => 0),
+    gapDone: STUDENTS.map(() => SKILLS.map(() => 0)), gapSkill: 2,
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     myclassTab: 'skills', warmupAdded: false,
     audio: 'none', studentPage: 'lesson',
@@ -82,6 +83,7 @@ function skillPct() {
 }
 function studentSkill(i) {
   return SKILLS.map((_, s) => {
+    if (S.gapDone[i][s] >= 3) return 'ok';
     const cells = S.practice[i].filter((c, t) => PRACTICE[t].skill === s && (c.st === 'ok' || c.st === 'bad'));
     const fr = Object.entries(S.frontal).filter(([k]) => FRONTAL[k[0]]?.[k[2]]?.skill === s).map(([, a]) => a[i]).filter(Boolean);
     const all = [...cells.map(c => c.st), ...fr];
@@ -96,7 +98,7 @@ const A = {
   view(el) { S.view = el.dataset.v; },
   nav(el) { S.page = el.dataset.p; },
   reset() { S = freshState(); toast('Состояние сброшено'); },
-  pick(el) { S.me = +el.value; },
+  pick(el) { S.me = +el.value; S.studentPage = 'home'; },
   // teacher: lesson
   startLesson() { S.lesson.started = true; S.page = 'live'; },
   stage(el) { const st = +el.dataset.s; if (!S.lesson.started) return; S.lesson.stage = st; S.lesson.stageStarted = false; S.lesson.task = 0; S.lesson.revealed = false; S.lesson.hintVote = null; },
@@ -164,6 +166,8 @@ const A = {
   sBonus(el) { const b = S.bonus[S.me]; b.done.push(el.dataset.ok === '1'); },
   sPage(el) { S.studentPage = el.dataset.p; },
   sHw() { S.hwDone[S.me] = Math.min(5, S.hwDone[S.me] + 1); },
+  sGapStart() { const g = studentSkill(S.me).indexOf('gap'); S.gapSkill = g >= 0 ? g : 2; S.studentPage = 'gap'; },
+  sGap() { S.gapDone[S.me][S.gapSkill]++; },
 
   // simulation of the rest of the class
   simFrontal() {
@@ -199,6 +203,10 @@ function advance(i) {
   else S.cur[i] = PRACTICE.length;
   if (bonusEligible(i)) S.bonus[i].open = true;
 }
+function mistakes(i) {
+  return S.practice[i].map((c, t) => (c.st === 'bad' || c.attempts > 1 || c.helper) ? t : -1).filter(t => t >= 0);
+}
+function similar(p, k) { const n = p.n + 111 * (k + 1); return { a: p.a, n, ans: p.a * n }; }
 function helperMsg(t, step) {
   const p = PRACTICE[t];
   const q = [
@@ -246,7 +254,7 @@ function tLive() {
   if (!L.started) return `<h1>Подготовка к уроку</h1><div class="sub">Урок 22 · Умножение четырёхзначного числа на однозначное (ч.2)</div>
     <div class="card row between"><div><h2>Урок 22</h2><p class="muted">Разминка · Решаем вместе · Практика · Рефлексия · ДЗ</p></div><button class="btn" data-action="startLesson">▶ Начать урок</button></div>
     <div class="card" style="margin-top:14px"><h3>Что нового в уроке к концу года</h3><ul style="margin:10px 0 0 18px;line-height:1.9">
-    <li>ИИ-подсказка учителю, когда класс ошибся во фронтальном задании</li><li><span class="new">✦</span> ИИ-помощник для ученика в практике</li><li><span class="new">✦</span> Бонусные задания от ИИ для тех, кто решил 70%+</li><li><span class="new">✦</span> Персональная домашка после урока</li></ul></div>`;
+    <li>ИИ-подсказка учителю, когда класс ошибся во фронтальном задании</li><li><span class="new">✦</span> ИИ-помощник для ученика в практике</li><li><span class="new">✦</span> Бонусные задания от ИИ для тех, кто решил 70%+</li><li><span class="new">✦</span> Персональная домашка: работа над ошибками этого урока</li><li><span class="new">✦</span> Задания на неосвоенные навыки — в карте знаний ученика</li></ul></div>`;
   const stepper = STAGES.map((s, k) => `<button class="step ${k === L.stage ? 'on' : k < L.stage ? 'done' : ''}" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}</button>`).join('');
   let body = '';
   if (L.stage <= 1) body = tFrontal();
@@ -360,7 +368,15 @@ function studentScreen(i) {
     if (S.studentPage === 'skills') {
       const sk = studentSkill(i); const lab = { ok: ['ok', 'освоено'], prog: ['mid', 'в процессе'], gap: ['bad', 'пробел'] };
       return [`${sTop('Карта знаний', '<span class="new">✦ по навыкам</span>')}<div class="s-body"><b>Умножение и деление</b>${SKILLS.map((s, k) => `<div class="skill"><span>${s}</span><span class="tag ${lab[sk[k]][0]}">${lab[sk[k]][1]}</span></div>`).join('')}</div>`,
-        `<button class="btn light" data-action="sPage" data-p="home">← На главную</button>${sk.includes('gap') ? '<button class="btn" data-action="sPage" data-p="hw">Закрыть пробел</button>' : ''}`];
+        `<button class="btn light" data-action="sPage" data-p="home">← На главную</button>${sk.includes('gap') ? '<button class="btn" data-action="sGapStart">✦ Закрыть пробел</button>' : ''}`];
+    }
+    if (S.studentPage === 'gap') {
+      const sk = S.gapSkill, d = S.gapDone[i][sk];
+      const base = PRACTICE.find(x => x.skill === sk) || PRACTICE[0]; const p = similar(base, d + 3);
+      if (d >= 3) return [`${sTop('Закрываем пробел', dots(3, 3, ['ok', 'ok', 'ok']))}<div class="s-body"><div class="banner" style="background:var(--green-bg)"><b>Пробел закрыт 🎉</b><div>Навык «${SKILLS[sk]}» теперь — освоено</div></div></div>`,
+        `<button class="btn" data-action="sPage" data-p="skills">Карта знаний</button><button class="btn light" data-action="sPage" data-p="home">← На главную</button>`];
+      return [`${sTop('Закрываем пробел', dots(3, d))}<div class="s-body"><span class="tag lav" style="align-self:flex-start">✦ ИИ подобрал по навыку: ${SKILLS[sk]}</span><div class="s-task">Найди произведение через разрядные слагаемые.</div><div class="expr">${p.a} · ${fmt(p.n)} = <span class="ans">?</span></div></div>`,
+        `<button class="btn" data-action="sGap">Ответить верно (${fmt(p.ans)})</button><button class="btn light" data-action="sPage" data-p="skills">← Карта знаний</button>`];
     }
     if (S.studentPage === 'photo') {
       const k = PHOTO_WORKS.findIndex(w => w.student === i); const w = PHOTO_WORKS[k];
@@ -371,17 +387,22 @@ function studentScreen(i) {
     if (S.studentPage === 'hw' && S.hw?.confirmed) {
       const g = S.hw.groups[i]; const d = S.hwDone[i];
       const topic = { errors: 'Неполные произведения', practice: 'Умножение на однозначное число', bonus: 'Задачи посложнее ⭐' }[g];
-      const p = PRACTICE[d % PRACTICE.length];
+      const ms = mistakes(i); const fromErr = g === 'errors' && ms.length;
+      const src = fromErr ? ms[d % ms.length] : d % PRACTICE.length;
+      const p = similar(PRACTICE[src], d);
+      const why = fromErr ? `<span class="muted" style="font-size:12px">✦ похоже на задание ${src + 1} урока, где была ошибка</span>` : '';
       return [`${sTop('Домашнее задание', dots(5, d))}<div class="s-body"><span class="tag lav" style="align-self:flex-start">✦ ${g === 'bonus' ? 'подобрано по итогам урока' : 'подобрано по твоим ошибкам'}: ${topic}</span>
-        ${d >= 5 ? '<div class="banner"><b>Домашка выполнена 🎉</b></div>' : `<div class="s-task">Найди произведение.</div><div class="expr">${p.a} · ${fmt(p.n)} = <span class="ans">?</span></div>`}</div>`,
+        ${d >= 5 ? '<div class="banner"><b>Домашка выполнена 🎉</b></div>' : `<div class="s-task">Найди произведение.</div><div class="expr">${p.a} · ${fmt(p.n)} = <span class="ans">?</span></div>${why}`}</div>`,
         `${d < 5 ? '<button class="btn" data-action="sHw">Ответить</button>' : ''}<button class="btn light" data-action="sPage" data-p="home">← На главную</button>`];
     }
     const hwCard = S.hw?.confirmed ? `<div class="banner"><div class="row between"><b>Твоя домашка · 5 заданий</b><span class="new">✦</span></div><div class="muted" style="font-size:12.5px">Подобрано по итогам урока · решено ${S.hwDone[i]}/5</div></div>` : `<div class="banner"><b>Домашнее задание</b><div class="muted" style="font-size:12.5px">${L.ended ? 'Учитель подтверждает домашку…' : 'Появится после урока'}</div></div>`;
     const photoK = PHOTO_WORKS.findIndex(w => w.student === i);
     const photo = photoK >= 0 && S.review.confirmed[photoK] ? `<div class="banner" style="background:var(--green-bg)"><b>Работа в тетради проверена</b><div class="muted" style="font-size:12.5px">Посмотри результат по критериям</div></div>` : '';
-    return [`${sTop(`Привет, ${name}!`)}<div class="s-body"><div class="banner" style="background:#fff;border:1px solid var(--line)"><b>Урок 22</b><div class="muted" style="font-size:12.5px">${L.ended ? 'Урок завершён' : 'Урок ещё не начался — ждём учителя'}</div></div>${hwCard}${photo}
+    const gapIdx = studentSkill(i).indexOf('gap');
+    const gapCard = gapIdx >= 0 ? `<div class="banner" style="background:var(--red-bg)"><div class="row between"><b>Есть пробел в навыке</b><span class="new">✦</span></div><div style="font-size:12.5px">${SKILLS[gapIdx]} — ИИ подобрал 3 задания</div></div>` : '';
+    return [`${sTop(`Привет, ${name}!`)}<div class="s-body"><div class="banner" style="background:#fff;border:1px solid var(--line)"><b>Урок 22</b><div class="muted" style="font-size:12.5px">${L.ended ? 'Урок завершён' : 'Урок ещё не начался — ждём учителя'}</div></div>${hwCard}${gapCard}${photo}
       <div class="banner" style="background:#fff;border:1px solid var(--line)"><div class="row between"><b>Карта знаний</b><span class="new">✦ по навыкам</span></div></div></div>`,
-      `${S.hw?.confirmed ? '<button class="btn" data-action="sPage" data-p="hw">Решать домашку</button>' : ''}<button class="btn light" data-action="sPage" data-p="skills">Карта знаний</button>${photo ? '<button class="btn light" data-action="sPage" data-p="photo">Результат работы</button>' : ''}`];
+      `${S.hw?.confirmed ? '<button class="btn" data-action="sPage" data-p="hw">Решать домашку</button>' : ''}<button class="btn light" data-action="sPage" data-p="skills">Карта знаний</button>${gapCard ? '<button class="btn" data-action="sGapStart">✦ Закрыть пробел</button>' : ''}${photo ? '<button class="btn light" data-action="sPage" data-p="photo">Результат работы</button>' : ''}`];
   }
   // frontal
   if (L.stage <= 1) {
