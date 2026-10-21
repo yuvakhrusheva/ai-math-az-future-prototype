@@ -72,6 +72,7 @@ function freshState() {
     hwDone: STUDENTS.map(() => 0),
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     classStudent: null, audio: 'none', studentPage: 'home', redo: false,
+    past: null, pastTab: 'mat', modOpen: {},        // past lesson opened from the thematic plan
     inp: {},                                        // values typed into the tablet boxes, by box id
   };
 }
@@ -141,6 +142,9 @@ const A = {
     if (S.lesson.task < list.length - 1) { S.lesson.task++; S.lesson.revealed = false; }
     else A.stage({ dataset: { s: S.lesson.stage + 1 } });
   },
+  openPast(el) { S.past = +el.dataset.no; S.pastTab = 'mat'; S.page = 'past'; },
+  pastTab(el) { S.pastTab = el.dataset.t; },
+  toggleMod(el) { const k = el.dataset.m; S.modOpen[k] = el.dataset.open !== '1'; },
   openDoc() { toast('В прототипе материалы не открываются — на платформе здесь файл или предпросмотр'); },
   hintVote(el) { S.lesson.hintVotes[key()] = el.dataset.v; toast('Оценка учителя уходит в контроль качества ИИ'); },
   cameOver(el) { S.hands = S.hands.filter(x => x !== +el.dataset.i); },
@@ -267,12 +271,12 @@ function teacher() {
   const mini = inLesson();
   const items = S.lesson.started && !S.lesson.ended ? [LIVE_NAV, ...NAV] : NAV;
   const nav = items.map(([p, icon, t]) => {
-    const on = S.page === p;
+    const on = S.page === p || (S.page === 'past' && p === 'plan');
     const badge = p === 'review' && pending ? `<span class="cnt">${pending}</span>` : p === 'audio' ? '<span class="new sm">✦</span>' : '';
     if (mini) return `<button class="nav-ic ${on ? 'on' : ''}" data-action="nav" data-p="${p}" title="${t}">${p === 'live' ? ic('live') : ic(icon)}${p === 'live' ? '<i class="dot"></i>' : ''}</button>`;
     return `<button class="nav ${on ? 'on' : ''}" data-action="nav" data-p="${p}">${ic(icon)}<span>${t}</span>${p === 'live' ? '<i class="live-dot"></i>' : badge}</button>`;
   }).join('');
-  const page = { home: tHome, plan: tPlan, live: tLive, myclass: tClass, review: tReview, audio: tAudio }[S.page]();
+  const page = { home: tHome, plan: tPlan, live: tLive, past: tPast, myclass: tClass, review: tReview, audio: tAudio }[S.page]();
   const side = mini
     ? `<aside class="side mini"><span class="logo">A</span><div class="nav-col">${nav}</div><span class="ava sm">НМ</span></aside>`
     : `<aside class="side"><div class="side-head"><span class="logo">A</span><b>AI Math</b><span class="muted" style="margin-left:auto">‹</span></div><div class="nav-col">${nav}</div>
@@ -319,15 +323,15 @@ function tPlan() {
   const today = () => L.ended ? `<span class="tag ok">Проведён сегодня</span><button class="btn sm lav" data-action="nav" data-p="live">Итоги урока ›</button>`
     : L.started ? `<span class="tag ok"><i class="live-dot"></i>Идёт урок</span><button class="btn sm" data-action="nav" data-p="live">Вернуться к уроку ›</button>`
     : `<span class="tag lav">Сегодня</span><button class="btn sm lav" data-action="nav" data-p="live">Подготовка</button><button class="btn sm" data-action="startLesson">▶ Начать урок</button>`;
-  const mods = PLAN.map(m => {
+  const mods = PLAN.map((m, mi) => {
     const done = m.lessons.filter(l => l[3] != null || (l[0] === 22 && L.ended)).length;
-    const closed = done === m.lessons.length; // finished modules stay collapsed
+    const closed = !(S.modOpen[mi] ?? done < m.lessons.length); // finished modules start collapsed
     const rows = m.lessons.map(([no, title, date, solv]) => {
       const cur = no === 22; const past = solv != null;
-      const right = cur ? today() : past ? `<span class="muted">решаемость ${solv}%</span><span class="tag ok">Проведён</span>` : '<button class="btn sm grey">Материалы</button>';
-      return `<div class="prow ${cur ? 'cur' : ''} ${!past && !cur ? 'next' : ''}"><span class="pno">${no}</span><div style="flex:1;min-width:0"><b>${title}</b><div class="muted xs">${date}${cur ? ' · сегодня' : ''}</div></div><div class="row" style="gap:10px">${right}</div></div>`;
+      const right = cur ? today() : past ? `<span class="muted">решаемость ${pastStats(no).avg}%</span><span class="tag ok">Проведён</span><span class="open-l">Открыть ›</span>` : '<button class="btn sm grey">Материалы</button>';
+      return `<div class="prow ${cur ? 'cur' : ''} ${!past && !cur ? 'next' : ''} ${past ? 'click' : ''}" ${past ? `data-action="openPast" data-no="${no}"` : ''}><span class="pno">${no}</span><div style="flex:1;min-width:0"><b>${title}</b><div class="muted xs">${date}${cur ? ' · сегодня' : ''}</div></div><div class="row" style="gap:10px">${right}</div></div>`;
     }).join('');
-    return `<div class="card pmod"><div class="row between"><div class="row"><span class="chev ${closed ? 'shut' : ''}">${CHEV}</span><div><h3>${m.module}</h3><div class="muted xs">${done} из ${m.lessons.length} уроков проведено</div></div></div>
+    return `<div class="card pmod"><div class="row between mod-head" data-action="toggleMod" data-m="${mi}" data-open="${closed ? 0 : 1}"><div class="row"><span class="chev ${closed ? 'shut' : ''}">${CHEV}</span><div><h3>${m.module}</h3><div class="muted xs">${done} из ${m.lessons.length} уроков проведено</div></div></div>
       <div class="bar" style="width:160px"><div style="width:${done / m.lessons.length * 100}%;background:var(--p)"></div></div></div>${closed ? '' : `<div class="plist">${rows}</div>`}</div>`;
   }).join('');
   return `<h1>Тематический план</h1><div class="sub">4-А · Математика · 1 полугодие</div><div class="col">${mods}</div>`;
@@ -341,16 +345,121 @@ const LESSON_PASSPORT = {
   stages: [['Разминка', '3 задания'], ['Решаем вместе', '7 заданий'], ['Практика', '7 заданий · треки A/B/C'], ['Рефлексия', '2 задания'], ['Домашнее задание', '5 заданий', 'ДЗ']],
 };
 const DOC_IC = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
-function tMaterials() {
-  const P = LESSON_PASSPORT;
+function tMaterials(P = LESSON_PASSPORT, past = false) {
   return `<div class="card mat"><div class="label-up" style="margin-top:0">Паспорт урока</div>
     <p><b>Методическая установка:</b> ${P.goal}</p>
-    <p style="margin-top:12px"><b>Содержательные стандарты:</b></p>${P.standards.map(([c, t]) => `<p class="std"><b>${c}</b> ${t}</p>`).join('')}
-    <p style="margin-top:12px"><b>Назначайте треки по рекомендациям из материалов урока.</b></p></div>
+    ${P.standards ? `<p style="margin-top:12px"><b>Содержательные стандарты:</b></p>${P.standards.map(([c, t]) => `<p class="std"><b>${c}</b> ${t}</p>`).join('')}` : ''}
+    ${past ? '' : '<p style="margin-top:12px"><b>Назначайте треки по рекомендациям из материалов урока.</b></p>'}</div>
   <div class="card mat"><div class="label-up" style="margin-top:0">Материалы урока</div><div class="links">${P.links.map(l => `<button class="doc" data-action="openDoc">${DOC_IC}<span>${l}</span></button>`).join('')}</div></div>
-  <div class="card mat"><div class="label-up" style="margin-top:0">Предпросмотр заданий</div><div class="plist">${P.stages.map(([n, c, tag], k) => `<div class="prow"><span class="pno">${k + 1}</span><div style="flex:1"><b>${n}</b>${tag ? ` <span class="tag lav">${tag}</span>` : ''}<div class="muted xs">${c}</div></div><button class="btn sm grey" data-action="openDoc">Просмотреть</button></div>`).join('')}</div></div>
-  <div class="card mat"><div class="label-up" style="margin-top:0">Треки</div><p class="muted">По умолчанию для урока сохраняются треки, назначенные на прошлом уроке. Если считаете, что кому-то из учеников нужен другой трек — переназначьте перед началом.</p>
-    <div class="row" style="margin-top:12px;gap:8px"><span class="trk-chip">A · 10</span><span class="trk-chip">B · 0</span><span class="trk-chip">C · 0</span><button class="btn sm lav" style="margin-left:auto" data-action="openDoc">Назначить треки</button></div></div>`;
+  <div class="card mat"><div class="label-up" style="margin-top:0">${past ? 'Задания урока' : 'Предпросмотр заданий'}</div><div class="plist">${P.stages.map(([n, c, tag], k) => `<div class="prow"><span class="pno">${k + 1}</span><div style="flex:1"><b>${n}</b>${tag ? ` <span class="tag lav">${tag}</span>` : ''}<div class="muted xs">${c}</div></div><button class="btn sm grey" data-action="openDoc">Просмотреть</button></div>`).join('')}</div></div>
+  ${past ? '' : `<div class="card mat"><div class="label-up" style="margin-top:0">Треки</div><p class="muted">По умолчанию для урока сохраняются треки, назначенные на прошлом уроке. Если считаете, что кому-то из учеников нужен другой трек — переназначьте перед началом.</p>
+    <div class="row" style="margin-top:12px;gap:8px"><span class="trk-chip">A · 10</span><span class="trk-chip">B · 0</span><span class="trk-chip">C · 0</span><button class="btn sm lav" style="margin-left:auto" data-action="openDoc">Назначить треки</button></div></div>`}`;
+}
+
+// Past lessons: opened from the thematic plan — materials, analytics, photo works, homework.
+const LINKS_STD = ['Презентация', 'Методические указания', 'Без планшетов. Презентация', 'Без планшетов. Методичка'];
+const STAGES_STD = n => [['Разминка', '3 задания'], ['Решаем вместе', `${Math.max(2, n - 9)} задания`], ['Практика', '6 заданий · треки A/B/C'], ['Рефлексия', '2 задания'], ['Домашнее задание', '5 заданий', 'ДЗ']];
+const PAST = {
+  17: { goal: 'Обобщить приёмы сложения и вычитания многозначных чисел: выбрать порядок действий в составной задаче и проверить ответ обратным действием.',
+    hard: [['Практика · №4', '8 004 − 2 567', 'вычитание с переходом через несколько разрядов: 5 547 вместо 5 437'], ['Практика · №6', 'Задача о библиотеке', 'забыли вычесть выданные книги']],
+    hint: 'Ошибки при вычитании с нулями в уменьшаемом',
+    photo: { title: 'Задача о библиотеке', criteria: ['Учтены и привезённые, и выданные книги', 'Вычисления выполнены без ошибок', 'Получен ответ — 2 870 книг', 'Записан ответ с наименованием'],
+      works: [[1, ['2 450 + 1 380 = 3 830', '3 830 − 960 = 2 870', 'Ответ: 2 870 книг.'], [1, 1, 1, 1]], [4, ['2 450 + 1 380 = 3 830', '3 830 − 960 = 2 970', 'Ответ: 2 970'], [1, 0, 0, 0]],
+        [7, ['2 450 − 960 = 1 490', '1 490 + 1 380 = 2 870', 'Ответ: 2 870 книг.'], [1, 1, 1, 1]], [3, ['2 450 + 1 380 = 3 830', 'Ответ: 3 830 книг.'], [0, 1, 0, 1]]] } },
+  18: { mso: true, goal: 'Мониторинговая работа по модулю «Сложение и вычитание»: проверить, как ученики складывают и вычитают многозначные числа и решают составные задачи. Подсказки, помощник и бонус на МСО не работают.',
+    stages: [['Мониторинговая работа', '16 заданий · без подсказок'], ['Задача с развёрнутым решением', 'фото из тетради']],
+    hard: [['№9', '10 000 − 3 458', 'вычитание из круглого числа: 7 652 вместо 6 542'], ['№14', 'Задача про яблоки', 'нашли только второй день, без суммы']],
+    photo: { title: 'Задача про яблоки', criteria: ['Найдено, сколько собрали во второй день — 1 625 кг', 'Найдено, сколько собрали за два дня', 'Вычисления выполнены без ошибок', 'Записан ответ с наименованием'],
+      works: [[0, ['1 245 + 380 = 1 625 (кг)', '1 245 + 1 625 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]], [8, ['1 245 + 380 = 1 625', 'Ответ: 1 625 кг.'], [1, 0, 1, 1]],
+        [5, ['1 245 − 380 = 865', '1 245 + 865 = 2 110', 'Ответ: 2 110 кг.'], [0, 1, 1, 1]], [9, ['1 245 + 380 = 1 625', '1 625 + 1 245 = 2 860'], [1, 1, 0, 0]]] } },
+  19: { goal: 'Разобрать типичные ошибки МСО-1: вычитание из круглых чисел и составные задачи. Каждый ученик дорешивает свои ошибки.',
+    hard: [['Практика · №3', '7 000 − 2 816', 'заём из разряда с нулём: 5 284 вместо 4 184'], ['Практика · №5', 'Задача про яблоки', 'путают «на … больше» и «в … раз больше»']],
+    hint: 'Заём через несколько нулей',
+    photo: { title: 'Задача про яблоки — исправление', criteria: ['Найдено, сколько собрали во второй день — 1 625 кг', 'Найдено, сколько собрали за два дня', 'Вычисления выполнены без ошибок', 'Записан ответ с наименованием'],
+      works: [[8, ['1 245 + 380 = 1 625 (кг)', '1 245 + 1 625 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]], [5, ['1 245 + 380 = 1 625 (кг)', '1 625 + 1 245 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]],
+        [9, ['1 245 + 380 = 1 625', '1 625 + 1 245 = 2 860', 'Ответ: 2 860 кг.'], [1, 1, 0, 1]]] } },
+  20: { goal: 'Повторить таблицу умножения и умножение круглых чисел перед модулем «Умножение и деление».',
+    hard: [['Разминка · №2', '7 · 8', '54 вместо 56'], ['Практика · №5', '400 · 6', 'потерян ноль: 240']],
+    hint: 'Путаница в табличном умножении на 7 и 8',
+    photo: { title: 'Ручки и тетради', criteria: ['Найдена стоимость ручек — 8 ман.', 'Найдена стоимость тетрадей — 3 ман.', 'Найдена общая стоимость — 11 ман.', 'Записан ответ с наименованием'],
+      works: [[2, ['2 · 4 = 8 (ман.)', '1 · 3 = 3 (ман.)', '8 + 3 = 11 (ман.)', 'Ответ: 11 манатов.'], [1, 1, 1, 1]], [6, ['2 · 4 = 8', '8 + 3 = 11'], [1, 0, 1, 0]],
+        [1, ['2 + 4 = 6', '6 + 3 = 9', 'Ответ: 9 ман.'], [0, 1, 0, 1]]] } },
+  21: { goal: 'Ввести приём умножения четырёхзначного числа на однозначное: разложить множитель на разрядные слагаемые, найти неполные произведения и сложить их.', standards: LESSON_PASSPORT.standards,
+    hard: [['Практика · №4', '3 241 · 2 = ?', 'потеряно неполное произведение 40 · 2'], ['Практика · №6', '1 221 · 4 = ?', 'разряды сложены со сдвигом: 4 884 → 4 844']],
+    hint: 'Ошибки в неполных произведениях',
+    photo: { title: 'Фабрика коробок', criteria: ['Множитель разложен на разрядные слагаемые', 'Найдены все неполные произведения', 'Неполные произведения сложены верно', 'Ответ — 3 639 коробок'],
+      works: [[0, ['1 213 · 3 = (1 000 + 200 + 10 + 3) · 3', '3 000 + 600 + 30 + 9 = 3 639', 'Ответ: 3 639 коробок.'], [1, 1, 1, 1]], [3, ['1 213 · 3 = (1 000 + 200 + 13) · 3', '3 000 + 600 + 39 = 3 639', 'Ответ: 3 639'], [0, 1, 1, 1]],
+        [9, ['1 000 · 3 = 3 000', '200 · 3 = 600', '3 000 + 600 = 3 600', 'Ответ: 3 600'], [1, 0, 0, 0]], [7, ['(1 000 + 200 + 10 + 3) · 3 =', '= 3 000 + 600 + 30 + 9 = 3 639', 'Ответ: 3 639 коробок.'], [1, 1, 1, 1]]] } },
+};
+// Deterministic pseudo-random in [0, 1): the same lesson always shows the same numbers.
+const hash = (...a) => { let x = 2166136261; for (const v of a) x = Math.imul(x ^ v, 16777619) >>> 0; x ^= x >>> 13; x = Math.imul(x, 2246822507) >>> 0; x ^= x >>> 16; return (x >>> 0) / 4294967296; };
+const planLesson = no => PLAN.flatMap(m => m.lessons).find(l => l[0] === no);
+function pastStats(no) {
+  const [, , , target] = planLesson(no); const mso = PAST[no].mso; const total = MAP.flatMap(m => m.lessons).find(l => l[0] === no)[3];
+  const rows = STUDENTS.map((n, i) => {
+    const r = Math.max(0.15, Math.min(1, target / 100 + (hash(no, i, 1) - 0.5) * 0.7));
+    const solved = Math.round(total * r);
+    const first = Math.max(0, solved - Math.round(hash(no, i, 2) * 3));
+    const helper = mso ? 0 : Math.round(hash(no, i, 3) * 2.4);
+    const bonus = !mso && r >= 0.6;
+    const st = r >= 0.8 ? ['ok', 'освоил'] : r >= 0.5 ? ['mid', 'частично'] : ['bad', 'нужна помощь'];
+    return { i, solved, first, helper, bonus, st, pct: Math.round(solved / total * 100) };
+  });
+  const avg = Math.round(rows.reduce((a, r) => a + r.pct, 0) / rows.length);
+  return { rows, avg, total, mso };
+}
+
+function tPast() {
+  const no = S.past, [, title, date] = planLesson(no), P = PAST[no];
+  const tabs = [['mat', 'Материалы'], ['an', 'Аналитика'], ['photo', 'Фото'], ['hw', 'Домашка']].map(([t, l]) => `<button class="${S.pastTab === t ? 'on' : ''}" data-action="pastTab" data-t="${t}">${l}</button>`).join('');
+  const body = { mat: () => tMaterials({ goal: P.goal, standards: P.standards, links: P.mso ? ['Мониторинговая работа', 'Ключ и критерии'] : LINKS_STD, stages: P.stages || STAGES_STD(pastStats(no).total) }, true), an: pastAnalytics, photo: pastPhoto, hw: pastHw }[S.pastTab](no);
+  return `<button class="link-back" data-action="nav" data-p="plan">‹ Тематический план</button><h1>Урок ${no} · ${title}</h1><div class="sub">${date} · 4-А · <span class="tag ok">Проведён</span></div>
+    <div class="seg-tabs">${tabs}</div>${body}`;
+}
+function pastAnalytics(no) {
+  const st = pastStats(no), P = PAST[no];
+  const help = st.rows.filter(r => r.st[0] === 'bad');
+  const stages = st.mso ? [['Мониторинговая работа', st.avg]] : [['Разминка', Math.min(97, st.avg + 13)], ['Решаем вместе', Math.max(30, st.avg - 6)], ['Практика', st.avg]];
+  const kpi3 = st.mso ? [st.rows.filter(r => r.st[0] === 'ok').length, 'учеников освоили модуль'] : [st.rows.filter(r => r.helper).length, 'решали с ✦ ИИ-помощником'];
+  const head = `<tr><th>Ученик</th><th>Решено</th><th>С первой попытки</th>${st.mso ? '' : '<th>✦ Помощник</th><th>⭐ Бонус</th>'}<th>Итог</th></tr>`;
+  const rows = st.rows.map(r => `<tr><td><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[r.i])}</span>${STUDENTS[r.i]}</span></td><td><b>${r.solved}</b><span class="muted"> / ${st.total}</span></td><td>${r.first}</td>${st.mso ? '' : `<td>${r.helper ? `${r.helper} зад.` : '<span class="muted">—</span>'}</td><td>${r.bonus ? '⭐' : '<span class="muted">—</span>'}</td>`}<td><span class="tag ${r.st[0]}">${r.st[1]}</span></td></tr>`).join('');
+  return `<div class="grid3">
+    <div class="card kpi"><span class="kpi-ic">%</span><b>${st.avg}%</b><span class="muted">решаемость урока</span></div>
+    <div class="card kpi"><span class="kpi-ic">${st.mso ? '✓' : '⭐'}</span><b>${st.mso ? 10 : st.rows.filter(r => r.bonus).length} <small>/ 10</small></b><span class="muted">${st.mso ? 'сдали работу' : 'дошли до бонуса'}</span></div>
+    <div class="card kpi"><span class="kpi-ic">${st.mso ? '★' : '✦'}</span><b>${kpi3[0]}</b><span class="muted">${kpi3[1]}</span></div></div>
+  <div class="grid2" style="margin-top:14px">
+    <div class="card"><h3>Решаемость по этапам</h3>${stages.map(([n, v]) => `<div class="stage-bar"><span>${n}</span><div class="bar"><div style="width:${v}%;background:var(--p)"></div></div><b>${v}%</b></div>`).join('')}
+      <div class="label-up">Трудные задания</div>${P.hard.map(([w, t, e]) => `<div class="li col-li"><b>${w} · ${t}</b><span class="muted" style="font-size:12.5px">${e}</span></div>`).join('')}</div>
+    <div class="card"><h3>Кто не справился · ${help.length}</h3>${help.length ? help.map(r => `<div class="li"><span class="ava xs">${initials(STUDENTS[r.i])}</span><span>${STUDENTS[r.i]}</span><span class="tag bad" style="margin-left:auto">${r.solved} из ${st.total}</span></div>`).join('') : '<p class="muted" style="margin-top:8px">Все справились</p>'}
+      ${P.hint ? `<div class="label-up">✦ ИИ-подсказка на уроке</div><div class="li col-li"><b>${P.hint}</b><span class="muted" style="font-size:12.5px">показана во «Решаем вместе» · вы оценили 👍</span></div>` : ''}</div></div>
+  <div class="card" style="margin-top:14px"><h3>Ученики</h3><table class="ptable">${head}${rows}</table></div>`;
+}
+function pastPhoto(no) {
+  const ph = PAST[no].photo, sent = ph.works.map(w => w[0]);
+  const status = s => s === 4 ? ['ok', 'Выполнено'] : s >= 2 ? ['mid', 'Частично'] : ['bad', 'Не выполнено'];
+  const cards = ph.works.map(([i, lines, marks]) => {
+    const sc = marks.filter(Boolean).length, [c, l] = status(sc);
+    return `<div class="card"><div class="row between"><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[i])}</span><b>${STUDENTS[i]}</b></span><span class="tag ${c}">${sc}/4 · ${l}</span></div>
+      <div class="notebook">${lines.join('<br>')}</div>${ph.criteria.map((t, k) => `<div class="crit"><i class="${marks[k] ? 'g' : 'r'}">${marks[k] ? '✓' : '✕'}</i><span>${t}</span></div>`).join('')}</div>`;
+  }).join('');
+  const missing = STUDENTS.filter((_, i) => !sent.includes(i));
+  return `<div class="card row between" style="margin-bottom:14px"><div><h3>Задача «${ph.title}»</h3><p class="muted">Прислали ${sent.length} из 10 · все работы проверены · <span class="new sm">✦ ИИ</span> отметил чеклист заранее, учитель подтвердил</p></div><button class="btn lav sm" data-action="openDoc">👁 Задание</button></div>
+    <div class="works">${cards}</div>
+    <p class="muted" style="margin-top:14px">Не прислали фото: ${missing.join(', ')}</p>`;
+}
+function pastHw(no) {
+  const st = pastStats(no);
+  const rows = st.rows.map(r => {
+    const errs = Math.min(2, st.total - r.first), weak = r.st[0] === 'ok' ? 0 : r.st[0] === 'mid' ? 1 : 2, hard = r.st[0] === 'ok' ? 2 : 1;
+    const kinds = [['err', errs], ['skill', weak], ['hard', hard], ['keep', Math.max(0, 5 - errs - weak - hard)]].filter(([, n]) => n);
+    const doneHw = hash(no, r.i, 4) > 0.15, right = doneHw ? Math.max(2, Math.round(5 * (0.45 + hash(no, r.i, 5) * 0.55))) : 0;
+    return `<div class="hw-row"><div class="row between"><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[r.i])}</span><b>${STUDENTS[r.i]}</b></span>
+      ${doneHw ? `<span class="row" style="gap:8px"><span class="muted">верно ${right} из 5</span><span class="tag ok">Сдано</span></span>` : '<span class="tag bad">Не сдано</span>'}</div>
+      <div class="row wrap" style="gap:6px;margin-top:6px">${kinds.map(([k, n]) => `<span class="tag ${HW_LABEL[k][0]}">${HW_LABEL[k][1]}${n > 1 ? ` · ${n}` : ''}</span>`).join('')}</div></div>`;
+  });
+  const done = st.rows.filter(r => hash(no, r.i, 4) > 0.15).length;
+  return `<div class="card"><div class="row between"><div><h3>Персональная домашка</h3><p class="muted" style="margin-top:4px">Собрана ИИ после урока и подтверждена учителем · сдали ${done} из 10</p></div><span class="new">✦ новое</span></div>
+    <div class="hw-list">${rows.join('')}</div></div>`;
 }
 
 const STAGE_TIME = ['04:48', '11:12', '09:48', '03:12', ''];

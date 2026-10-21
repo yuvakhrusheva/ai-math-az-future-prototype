@@ -101,6 +101,8 @@ h1{font-size:26px;font-weight:800;letter-spacing:-.01em} h2{font-size:19px;font-
 .seg-tabs{display:flex;gap:4px;background:#fff;border-radius:12px;padding:4px;margin:16px 0;width:max-content;box-shadow:var(--shadow)}
 .seg-tabs span{padding:8px 16px;border-radius:9px;font-weight:600;color:var(--muted);font-size:13.5px}
 .seg-tabs span.on{background:var(--lav);color:var(--p)} .seg-tabs span.off{opacity:.55}
+.seg-tabs button{padding:8px 16px;border-radius:9px;font-weight:600;color:var(--muted);font-size:13.5px}
+.seg-tabs button:hover{color:var(--p)} .seg-tabs button.on{background:var(--lav);color:var(--p)}
 
 /* thematic plan */
 .pmod{padding:18px 20px}
@@ -113,6 +115,17 @@ h1{font-size:26px;font-weight:800;letter-spacing:-.01em} h2{font-size:19px;font-
 .prow.next b{color:var(--ink2);font-weight:500}
 .pno{width:34px;height:34px;border-radius:10px;background:var(--bg);color:var(--ink2);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
 .prow.cur .pno{background:var(--p);color:#fff}
+.prow.click,.mod-head{cursor:pointer} .prow.click:hover{background:#F6F3FF;border-color:#C9BCF8}
+.prow .open-l{color:var(--p);font-weight:600;font-size:13px}
+
+/* past lesson */
+.ptable{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px}
+.ptable th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:6px 8px}
+.ptable td{padding:8px;border-top:1px solid var(--line)}
+.stage-bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:12px;margin-top:10px}
+.works{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.works .notebook{min-height:150px;font-size:22px;line-height:30px;padding:10px 16px;margin:10px 0}
+.crit{display:flex;gap:8px;font-size:12.5px;margin-top:5px;line-height:1.35} .crit i{font-style:normal;font-weight:800;flex:none;width:14px}
 .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2DC26B;margin-left:auto}
 .tag .live-dot{margin:0 2px 0 0}
 
