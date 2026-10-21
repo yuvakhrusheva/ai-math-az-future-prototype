@@ -116,6 +116,14 @@ h1{font-size:26px;font-weight:800;letter-spacing:-.01em} h2{font-size:19px;font-
 .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2DC26B;margin-left:auto}
 .tag .live-dot{margin:0 2px 0 0}
 
+/* lesson materials */
+.mat{margin-bottom:14px;line-height:1.55;color:var(--ink2)}
+.mat .std{margin-top:4px}
+.links{display:flex;flex-wrap:wrap;gap:8px}
+.doc{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-weight:600;font-size:13.5px;color:var(--ink)}
+.doc svg{color:var(--p)} .doc:hover{background:var(--lav)}
+.trk-chip{padding:6px 12px;border-radius:999px;background:var(--lav);color:var(--p);font-weight:700;font-size:13px}
+
 /* live header */
 .live-head{background:#fff;border-bottom:1px solid var(--line);padding:16px 22px 14px}
 .live-head .lt{font-size:16px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

@@ -141,6 +141,7 @@ const A = {
     if (S.lesson.task < list.length - 1) { S.lesson.task++; S.lesson.revealed = false; }
     else A.stage({ dataset: { s: S.lesson.stage + 1 } });
   },
+  openDoc() { toast('В прототипе материалы не открываются — на платформе здесь файл или предпросмотр'); },
   hintVote(el) { S.lesson.hintVotes[key()] = el.dataset.v; toast('Оценка учителя уходит в контроль качества ИИ'); },
   cameOver(el) { S.hands = S.hands.filter(x => x !== +el.dataset.i); },
   endLesson() {
@@ -332,6 +333,26 @@ function tPlan() {
   return `<h1>Тематический план</h1><div class="sub">4-А · Математика · 1 полугодие</div><div class="col">${mods}</div>`;
 }
 
+// Lesson materials tab: content of lesson 22 as it is in the course (passport, links, stages, tracks).
+const LESSON_PASSPORT = {
+  goal: 'Научить находить произведение многозначного числа на однозначное сложением неполных произведений, объяснить, почему множитель можно разложить на разрядные слагаемые и почему ответ при этом не меняется.',
+  standards: [['4-1.2.2.', 'Выполняет умножение многозначного числа на однозначное, двузначное и трёхзначное число.'], ['4-1.2.5.', 'Использует свойства арифметических действий в вычислениях.']],
+  links: ['Презентация', 'Методические указания', 'Рекомендации по назначению треков', 'Без планшетов. Презентация', 'Без планшетов. Методичка'],
+  stages: [['Разминка', '3 задания'], ['Решаем вместе', '7 заданий'], ['Практика', '7 заданий · треки A/B/C'], ['Рефлексия', '2 задания'], ['Домашнее задание', '5 заданий', 'ДЗ']],
+};
+const DOC_IC = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
+function tMaterials() {
+  const P = LESSON_PASSPORT;
+  return `<div class="card mat"><div class="label-up" style="margin-top:0">Паспорт урока</div>
+    <p><b>Методическая установка:</b> ${P.goal}</p>
+    <p style="margin-top:12px"><b>Содержательные стандарты:</b></p>${P.standards.map(([c, t]) => `<p class="std"><b>${c}</b> ${t}</p>`).join('')}
+    <p style="margin-top:12px"><b>Назначайте треки по рекомендациям из материалов урока.</b></p></div>
+  <div class="card mat"><div class="label-up" style="margin-top:0">Материалы урока</div><div class="links">${P.links.map(l => `<button class="doc" data-action="openDoc">${DOC_IC}<span>${l}</span></button>`).join('')}</div></div>
+  <div class="card mat"><div class="label-up" style="margin-top:0">Предпросмотр заданий</div><div class="plist">${P.stages.map(([n, c, tag], k) => `<div class="prow"><span class="pno">${k + 1}</span><div style="flex:1"><b>${n}</b>${tag ? ` <span class="tag lav">${tag}</span>` : ''}<div class="muted xs">${c}</div></div><button class="btn sm grey" data-action="openDoc">Просмотреть</button></div>`).join('')}</div></div>
+  <div class="card mat"><div class="label-up" style="margin-top:0">Треки</div><p class="muted">По умолчанию для урока сохраняются треки, назначенные на прошлом уроке. Если считаете, что кому-то из учеников нужен другой трек — переназначьте перед началом.</p>
+    <div class="row" style="margin-top:12px;gap:8px"><span class="trk-chip">A · 10</span><span class="trk-chip">B · 0</span><span class="trk-chip">C · 0</span><button class="btn sm lav" style="margin-left:auto" data-action="openDoc">Назначить треки</button></div></div>`;
+}
+
 const STAGE_TIME = ['04:48', '11:12', '09:48', '03:12', ''];
 function tLive() {
   const L = S.lesson;
@@ -339,10 +360,7 @@ function tLive() {
   if (!L.started) return `<button class="link-back" data-action="nav" data-p="plan">‹ Тематический план</button><h1>Подготовка к уроку</h1><div class="sub">Просмотрите материалы заранее и начните урок, когда класс готов</div>
     <div class="card row between"><div><div class="label-up" style="margin:0 0 4px">Сегодня · 4-А</div><h2>Умножение четырёхзначного числа на однозначное число (ч.2)</h2><span class="chip-l">Модуль · Умножение и деление</span></div><button class="btn" data-action="startLesson">▶ Начать урок</button></div>
     <div class="seg-tabs"><span class="on">Материалы</span><span>Аналитика</span><span class="off">Фото</span><span class="off">Домашка</span></div>
-    <div class="card"><div class="label-up" style="margin-top:0">Что нового в уроке к концу года</div><ul class="ul">
-    <li>ИИ-подсказка учителю во фронтальной работе, когда класс ошибся</li><li><span class="new sm">✦</span> ИИ-помощник ведёт ученика по шагам прямо в задании</li>
-    <li><span class="new sm">✦</span> Бонус всем, кто закончил практику: посложнее или по своим ошибкам</li><li><span class="new sm">✦</span> Персональная домашка: свои ошибки и слабые навыки каждого</li></ul>
-    <p class="muted" style="margin-top:12px;font-size:12.5px">Быстро перейти к любой функции — меню «Показать функцию» сверху.</p></div>`;
+    ${tMaterials()}`;
   const stepper = STAGES.map((s, k) => k === L.stage
     ? `<button class="step on" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}${STAGE_TIME[k] ? `<em>${STAGE_TIME[k]}</em>` : ''}</button>`
     : `<button class="step" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}${STAGE_TIME[k] ? `<span class="t">${STAGE_TIME[k]}</span>` : ''}</button>`).join('');
