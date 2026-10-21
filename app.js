@@ -1,4 +1,4 @@
-// AI Math AZ — end-of-year prototype. Teacher app + student tablet; student actions are buttons.
+// AI Math AZ — end-of-year prototype. Teacher app + student tablet in a floating window; the student types answers on the tablet.
 'use strict';
 
 // ---------- Content (lesson 22: multiplying a 4-digit number by a 1-digit number) ----------
@@ -72,6 +72,7 @@ function freshState() {
     hwDone: STUDENTS.map(() => 0),
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     classStudent: null, audio: 'none', studentPage: 'home', redo: false,
+    inp: {},                                        // values typed into the tablet boxes, by box id
   };
 }
 
@@ -227,7 +228,7 @@ function seed(kind) {
     L.stage = 1; L.stageStarted = true; L.revealed = true; others(0.5); answers()[S.me] = 'bad';
     L.stage = 2; A.stageStart(); A.simPractice(); A.simPractice();
   }
-  if (kind === 'helper') { practiceAnswer(S.me, false); toast('Ученик ошибся — нажмите «✦ С помощником» на планшете'); }
+  if (kind === 'helper') { practiceAnswer(S.me, false); toast('Ученик ошибся — нажмите «✦ Решить с помощником» на планшете'); }
   if (kind === 'map') { practiceAnswer(S.me, true); practiceAnswer(S.me, false); practiceAnswer(S.me, false); practiceAnswer(S.me, true); }
   if (kind === 'bonus' || kind === 'hw' || kind === 'skills') {
     practiceAnswer(S.me, false); A.sHelper(); A.sHelperStep(); A.sHelperStep(); A.sHelperStep(); A.sHelperNext();
@@ -420,34 +421,90 @@ function tAudio() {
   return `<h1>Разбор урока</h1><div class="sub">ИИ-аудиокоуч · <span class="new sm">✦ новое</span></div>${body}`;
 }
 
-// ---------- Render: student tablet ----------
+// ---------- Student input: answers typed into the boxes on the tablet ----------
+const norm = v => String(v ?? '').replace(/\s/g, '');
+const esc = v => String(v ?? '').replace(/[&"<>]/g, ch => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' }[ch]));
+const PRACTICE_CELLS = p => [...p.parts.map((x, k) => [0, k, x]), ...p.prods.map((x, k) => [1, k, x]), [2, 0, p.ans]];
+const filled = ids => ids.every(id => norm(S.inp[id]));
+Object.assign(A, {
+  sSubmit(el) {
+    const i = S.me, kind = el.dataset.kind;
+    if (kind === 'frontal') {
+      const id = `f${i}-${key()}`; if (!filled([id])) return toast('Впиши ответ в окошко');
+      answers()[i] = norm(S.inp[id]) === norm(frontalTask().right) ? 'ok' : 'bad'; return;
+    }
+    if (kind === 'practice') {
+      const t = S.cur[i], p = PRACTICE[t], c = S.practice[i][t]; if (!c) return;
+      const pre = `p${i}-${t}-a${c.attempts}`; const cells = PRACTICE_CELLS(p);
+      if (!filled(cells.map(([g, k]) => `${pre}-${g}-${k}`))) return toast('Заполни все окошки');
+      S.inp[`${pre}-sub`] = 1;
+      practiceAnswer(i, cells.every(([g, k, x]) => norm(S.inp[`${pre}-${g}-${k}`]) === String(x))); return;
+    }
+    if (kind === 'bonus') {
+      const k = S.bonus[i].done.length, t = bonusTasks(i)[k], id = `b${i}-${k}`;
+      if (!filled([id])) return toast('Впиши ответ в окошко');
+      S.bonus[i].done.push(norm(S.inp[id]) === String(t.ans)); return;
+    }
+    if (kind === 'hw') {
+      const d = S.hwDone[i], t = hwTask(S.hw.plans[i][d], d), id = `h${i}-${d}`;
+      if (!filled([id])) return toast('Впиши ответ в окошко');
+      if (norm(S.inp[id]) === String(t.ans)) S.hwDone[i]++; else toast('Пока неверно — проверь вычисления');
+    }
+  },
+  sHelperCheck() {
+    const i = S.me, h = S.helper[i], p = PRACTICE[h.task];
+    const cells = PRACTICE_CELLS(p).filter(([g]) => g === h.step);
+    const ids = cells.map(([g, k]) => `p${i}-${h.task}-h-${g}-${k}`);
+    if (!filled(ids)) return toast('Заполни подсвеченные окошки');
+    if (cells.every(([, , x], n) => norm(S.inp[ids[n]]) === String(x))) A.sHelperStep();
+    else toast('Пока не так — посмотри на подсказку ✦');
+  },
+});
+
+// ---------- Render: student tablet (floating window over the teacher app) ----------
 function student() {
   const i = S.me;
-  const picker = `<div class="picker">Планшет ученика: <select data-change="pick">${STUDENTS.map((n, k) => `<option value="${k}" ${k === i ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
+  if (S.view === 'teacher') return `<button class="win-pill" data-action="view" data-v="both"><span class="tab-ic"></span>Планшет ученика · ${STUDENTS[i]}<span class="up">⌃</span></button>`;
+  const big = S.view === 'student';
   const [screen, ctrls] = studentScreen(i);
-  return `${picker}<div class="tablet"><div class="screen">${screen}</div></div>${ctrls ? `<div class="controls"><h4>Ввод ученика и класс (симуляция)</h4><div class="row">${ctrls}</div></div>` : ''}`;
+  return `<div class="win"><div class="win-head" data-drag><span class="win-t">Планшет ученика</span>
+    <select data-change="pick">${STUDENTS.map((n, k) => `<option value="${k}" ${k === i ? 'selected' : ''}>${n}</option>`).join('')}</select>
+    <span class="win-btns">${big ? '<button data-action="view" data-v="both" title="Уменьшить">⤡</button>' : '<button data-action="view" data-v="student" title="Развернуть">⤢</button>'}<button data-action="view" data-v="teacher" title="Свернуть">—</button></span></div>
+    <div class="tablet"><div class="scaler"><div class="screen">${screen}</div></div></div>
+    ${ctrls ? `<div class="controls"><span class="lbl">Быстро, без ввода:</span>${ctrls}</div>` : ''}</div>`;
 }
 const initials = n => n.split(' ').map(x => x[0]).join('');
 function sTop(title, right = '', back = '') { return `<div class="s-top">${back ? `<button class="s-back" data-action="sPage" data-p="${back}">←</button>` : ''}<span class="s-title">${title}</span><span class="s-right">${right}</span></div>`; }
 function dots(label, n, curIdx, states) { return `<span class="dl">${label}</span><span class="pill-dots">${Array.from({ length: n }, (_, k) => `<i class="${states?.[k] === 'ok' ? 'ok' : states?.[k] === 'bad' ? 'bad' : k === curIdx ? 'on' : k > curIdx ? 'lock' : ''}">${k > curIdx && !states?.[k] ? '🔒' : k + 1}</i>`).join('')}</span>`; }
-const box = (v, cls = '') => `<span class="ans ${cls}">${v ?? ''}</span>`;
+const box = (v, cls = '') => `<span class="ans ${cls}">${esc(v)}</span>`;
+const inp = (id, cls = '') => `<input class="ans ${cls}" data-box="${id}" value="${esc(S.inp[id])}" inputmode="numeric" autocomplete="off" aria-label="Ответ">`;
 const sim = (act, label) => `<button class="btn sim" data-action="${act}">👥 ${label}</button>`;
-const ansBtns = (extra = '') => `<button class="btn" data-action="sAnswer" data-ok="1">Ответить верно</button><button class="btn out" data-action="sAnswer" data-ok="0">Ответить с ошибкой</button>${extra}`;
+const ansBtns = (extra = '') => `<button class="btn sm" data-action="sAnswer" data-ok="1">Ответить верно</button><button class="btn sm out" data-action="sAnswer" data-ok="0">Ответить с ошибкой</button>${extra}`;
 const sBottom = html => `<div class="s-bottom">${html}</div>`;
+const submitBtn = kind => `<button class="btn wide" data-action="sSubmit" data-kind="${kind}" data-submit>Отправить</button>`;
 const LESSON_T = 'Умножение четырёхзначного числа на однозначное число (ч.2)';
 
-function practiceTask(p, c, h) {
-  const step = h ? h.step : -1;
-  const fill = g => (h && (step > g || h.done)) || c.st === 'ok';
-  const cls = g => h ? (step === g && !h.done ? 'hl' : fill(g) ? 'ok' : '') : c.st === 'ok' ? 'ok' : '';
-  const errShown = c.st === 'bad' && !h;
-  const ansCls = h ? cls(2) : c.st === 'bad' ? 'bad' : c.st === 'ok' ? 'ok' : '';
-  const ansVal = (h ? fill(2) : c.st === 'ok') ? fmt(p.ans) : errShown ? fmt(p.ans - 10) : '';
-  const l1 = `${p.a} · ${fmt(p.n)} = ${p.a} · (${p.parts.map(x => box(fill(0) || errShown ? fmt(x) : '', errShown ? 'ok' : cls(0))).join(' + ')})`;
-  const l2 = `= ${p.prods.map(x => box(fill(1) || errShown ? fmt(x) : '', errShown ? 'ok' : cls(1))).join(' + ')}`;
+function practiceTask(p, c, h, i, t) {
+  const exp = (g, k) => [p.parts, p.prods, [p.ans]][g][k];
+  const cur = `p${i}-${t}-a${c.attempts}`, prev = `p${i}-${t}-a${c.attempts - 1}`, hid = `p${i}-${t}-h`;
+  const typedPrev = S.inp[`${prev}-sub`];
+  const cell = (g, k) => {
+    const e = fmt(exp(g, k));
+    if (c.st === 'ok' || (h && (h.done || h.step > g))) return box(e, 'ok');
+    if (h) return h.step === g ? inp(`${hid}-${g}-${k}`, 'hl') : box('', 'off');
+    if (c.st === 'bad') {
+      // Answer given with the quick buttons: show a typical slip in the final sum.
+      if (!typedPrev) return g === 2 ? box(fmt(p.ans - 10), 'bad') : box(e, 'ok');
+      const v = S.inp[`${prev}-${g}-${k}`] || '';
+      return box(v, norm(v) === norm(e) ? 'ok' : 'bad');
+    }
+    return inp(`${cur}-${g}-${k}`);
+  };
+  const l1 = `${p.a} · ${fmt(p.n)} = ${p.a} · (${p.parts.map((_, k) => cell(0, k)).join(' + ')})`;
+  const l2 = `= ${p.prods.map((_, k) => cell(1, k)).join(' + ')}`;
   const tips = [`Разложи ${fmt(p.n)} на разрядные слагаемые`, `Умножь каждое слагаемое на ${p.a}`, 'Сложи неполные произведения'];
   const tip = h && !h.done ? `<div class="chip-hint">✦ ${tips[h.step]}</div>` : h?.done ? `<div class="chip-hint ok">✓ Ты решил сам — ответ засчитан</div>` : '';
-  return `<div class="s-task">Вставь пропущенные числа и найди произведение.</div><div class="expr steps"><div>${l1}</div><div>${l2}</div><div>= ${box(ansVal, ansCls)}</div></div>${tip}`;
+  return `<div class="s-task">Вставь пропущенные числа и найди произведение.</div><div class="expr steps"><div>${l1}</div><div>${l2}</div><div>= ${cell(2, 0)}</div></div>${tip}`;
 }
 
 function studentScreen(i) {
@@ -480,8 +537,8 @@ function studentScreen(i) {
       const plan = S.hw.plans[i]; const d = S.hwDone[i];
       if (d >= plan.length) return [`${sTop('Домашнее задание', '', 'home')}<div class="s-body center"><div class="big-ok">✓</div><b>Домашка выполнена</b></div>`, ''];
       const t = hwTask(plan[d], d);
-      return [`${sTop('Домашнее задание', dots('Домашка:', plan.length, d), 'home')}<div class="s-body"><span class="why">✦ ${t.why}</span><div class="s-task">${t.text || 'Найди произведение.'}</div><div class="expr">${t.a} · ${fmt(t.n)} = ${box('')}</div></div>${sBottom('<button class="btn wide disabled-look">Отправить</button>')}`,
-        `<button class="btn" data-action="sHw">Ответить верно (${fmt(t.ans)})</button>`];
+      return [`${sTop('Домашнее задание', dots('Домашка:', plan.length, d), 'home')}<div class="s-body"><span class="why">✦ ${t.why}</span><div class="s-task">${t.text || 'Найди произведение.'}</div><div class="expr">${t.a} · ${fmt(t.n)} = ${inp(`h${i}-${d}`)}</div></div>${sBottom(submitBtn('hw'))}`,
+        `<button class="btn sm" data-action="sHw">Ответить верно (${fmt(t.ans)})</button>`];
     }
     const plan = S.hw?.confirmed ? S.hw.plans[i] : null;
     const photoK = PHOTO_WORKS.findIndex(w => w.student === i);
@@ -490,18 +547,19 @@ function studentScreen(i) {
     const lessonState = L.ended ? '<span class="st-pill">Урок завершён</span>' : '<span class="st-pill"><i></i>Урок еще не начался — ждем учителя</span>';
     return [`${head}<div class="s-body home"><h2 class="s-h2 center">Привет, ${name}! 👋</h2>
       <div class="sec">Классная работа</div><div class="s-card"><span class="ill">▦</span><div><div class="muted xs">Сегодняшний урок</div><b>Урок 22</b><div>${lessonState}</div></div></div>
-      <div class="sec">Домашняя работа</div><div class="s-card"><span class="ill y">✎</span><div style="flex:1"><b>${plan ? `Твоя домашка · ${plan.length} заданий` : 'Домашнее задание'}</b> ${plan ? '<span class="new sm">✦</span>' : ''}<div class="muted xs">${plan ? 'Подобрано по твоим ошибкам и навыкам' : L.ended ? 'Учитель подтверждает домашку…' : 'Сдать до 25 октября'}</div></div>${plan ? `<button class="btn sm" data-action="sPage" data-p="hw">${S.hwDone[i] ? 'Продолжить' : 'Начать'}</button>` : ''}</div>
-      ${photo ? `<div class="s-card ok-card"><span class="ill g">✓</span><div style="flex:1"><b>Работа в тетради проверена</b><div class="muted xs">Результат по критериям</div></div><button class="btn sm lav" data-action="sPage" data-p="photo">Открыть</button></div>` : ''}
+      <div class="sec">Домашняя работа</div><div class="s-card"><span class="ill y">✎</span><div style="flex:1"><b>${plan ? `Твоя домашка · ${plan.length} заданий` : 'Домашнее задание'}</b> ${plan ? '<span class="new sm">✦</span>' : ''}<div class="muted xs">${plan ? 'Подобрано по твоим ошибкам и навыкам' : L.ended ? 'Учитель подтверждает домашку…' : 'Сдать до 25 октября'}</div></div>${plan ? `<button class="btn" data-action="sPage" data-p="hw">${S.hwDone[i] ? 'Продолжить' : 'Начать'}</button>` : ''}</div>
+      ${photo ? `<div class="s-card ok-card"><span class="ill g">✓</span><div style="flex:1"><b>Работа в тетради проверена</b><div class="muted xs">Результат по критериям</div></div><button class="btn lav" data-action="sPage" data-p="photo">Открыть</button></div>` : ''}
       <div class="sec">Мои достижения</div><button class="s-card" data-action="sPage" data-p="map"><span class="ill b">⌖</span><div style="flex:1;text-align:left"><b>Карта знаний</b><div class="muted xs">${left ? `Можно дорешать: ${left}` : 'Пройденные и текущие темы'}</div></div><span class="pct">50% ›</span></button></div>`, ''];
   }
   if (L.stage <= 1) {
     const list = FRONTAL[L.stage]; const t = list[L.task];
     if (!L.stageStarted) return [watch(), ''];
-    const my = answers()[i];
+    const my = answers()[i]; const fid = `f${i}-${key()}`;
+    const myVal = S.inp[fid] || (my === 'ok' ? t.right : t.wrong);
     const top = sTop(LESSON_T, dots(`${STAGES[L.stage]}:`, list.length, L.task));
-    if (L.revealed) return [`${top}<div class="s-body"><div class="s-task">${t.text}</div><div class="expr">${t.expr.replace('?', box(my === 'ok' ? t.right : my === 'bad' ? t.wrong : '—', my === 'ok' ? 'ok' : 'bad'))}</div></div>
-      <div class="s-result"><span class="res ${my === 'ok' ? 'ok' : 'bad'}">${my === 'ok' ? '✓ Верно! Молодец.' : '✕ Не совсем так.'}</span><div class="cls"><span class="lbl">Как ответил класс:</span><div class="row" style="gap:10px;font-size:12px">Верно: <b>${Object.values(answers()).filter(v => v === 'ok').length}</b> Неверно: <b>${Object.values(answers()).filter(v => v === 'bad').length}</b></div></div></div>`, ''];
-    return [`${top}<div class="s-body"><div class="s-task">${t.text}</div><div class="expr">${t.expr.replace('?', box(my ? (my === 'ok' ? t.right : t.wrong) : ''))}</div></div>${sBottom(`<button class="btn wide ${my ? 'disabled-look' : 'disabled-look'}">${my ? 'Ответ отправлен' : 'Отправить'}</button>`)}`,
+    if (L.revealed) return [`${top}<div class="s-body"><div class="s-task">${t.text}</div><div class="expr">${t.expr.replace('?', box(my ? myVal : '—', my === 'ok' ? 'ok' : 'bad'))}</div></div>
+      <div class="s-result"><span class="res ${my === 'ok' ? 'ok' : 'bad'}">${my === 'ok' ? '✓ Верно! Молодец.' : '✕ Не совсем так.'}</span><div class="cls"><span class="lbl">Как ответил класс:</span><div class="row" style="gap:10px">Верно: <b>${Object.values(answers()).filter(v => v === 'ok').length}</b> Неверно: <b>${Object.values(answers()).filter(v => v === 'bad').length}</b></div></div></div>`, ''];
+    return [`${top}<div class="s-body"><div class="s-task">${t.text}</div><div class="expr">${t.expr.replace('?', my ? box(myVal, 'sent') : inp(fid))}</div></div>${sBottom(my ? '<button class="btn wide disabled-look">Ответ отправлен — ждём остальных</button>' : submitBtn('frontal'))}`,
       my ? sim('simFrontal', 'Ответы класса') : ansBtns(sim('simFrontal', 'Ответы класса'))];
   }
   if (L.stage === 2) {
@@ -510,42 +568,53 @@ function studentScreen(i) {
     if (b.open) return bonusScreen(i, !b.seen);
     return practiceScreen(i, false);
   }
-  if (L.stage === 3) return [`${sTop(LESSON_T, 'Рефлексия')}<div class="s-body center"><div class="s-task">Как тебе урок?</div><div class="row" style="font-size:38px;gap:18px">${['😀', '🙂', '🤔'].map(e => `<button data-action="sReflect" data-v="${e}" style="opacity:${S.reflection[i] === e ? 1 : .45}">${e}</button>`).join('')}</div></div>`, sim('simReflect', 'Ответы класса')];
+  if (L.stage === 3) return [`${sTop(LESSON_T, 'Рефлексия')}<div class="s-body center"><div class="s-task">Как тебе урок?</div><div class="row" style="font-size:52px;gap:26px">${['😀', '🙂', '🤔'].map(e => `<button data-action="sReflect" data-v="${e}" style="opacity:${S.reflection[i] === e ? 1 : .45}">${e}</button>`).join('')}</div></div>`, sim('simReflect', 'Ответы класса')];
   return [watch('Учитель завершает урок'), ''];
 }
-function watch(text = 'Смотрим на учителя') { return `${sTop(LESSON_T)}<div class="s-body center"><div class="eyes">👀</div><b style="font-size:17px">${text}</b><span class="muted xs">Внимательно слушай объяснение, чтобы лучше усвоить материал.</span></div>`; }
+function watch(text = 'Смотрим на учителя') { return `${sTop(LESSON_T)}<div class="s-body center"><div class="eyes">👀</div><b style="font-size:20px">${text}</b><span class="muted">Внимательно слушай объяснение, чтобы лучше усвоить материал.</span></div>`; }
 
 function practiceScreen(i, redo) {
   const t = S.cur[i];
   const top = (tt) => sTop(LESSON_T, dots('Практика:', 7, tt, S.practice[i].map(x => x.st === 'solving' ? null : x.st)), redo ? 'map' : '');
   if (t >= PRACTICE.length) return [`${top(7)}<div class="s-body center"><div class="big-ok">✓</div><b>Практика выполнена</b><span class="muted">Решено ${solvedCount(i)} из 7</span></div>`, sim('simPractice', 'Класс решает')];
   const p = PRACTICE[t], c = S.practice[i][t], h = S.helper[i];
-  if (h) return [`${top(t)}<div class="s-body">${practiceTask(p, c, h)}</div>${sBottom(h.done ? '<button class="btn wide" data-action="sHelperNext">Решать дальше</button>' : `<button class="btn wide" data-action="sHelperStep">Заполнить шаг ${h.step + 1} из 3</button>`)}`, ''];
-  if (c.st === 'bad') return [`${top(t)}<div class="s-body">${practiceTask(p, c, null)}</div><div class="s-attempt">${redo ? '' : 'Попытка 1/2'}</div>
-    ${sBottom(`<button class="btn lav" data-action="sHand">✋ Позвать учителя</button><button class="btn ai" data-action="sHelper">✦ С помощником</button><button class="btn" style="flex:1" data-action="sRetry">↻ Решить еще раз</button>`)}`, redo ? '' : sim('simPractice', 'Класс решает')];
-  return [`${top(t)}<div class="s-body">${practiceTask(p, c, null)}</div><div class="s-attempt">${redo ? 'Дорешивание' : `Попытка ${Math.min(2, c.attempts + 1)}/2`}</div>${sBottom(`<button class="btn lav" data-action="sHand">✋</button><button class="btn wide disabled-look">Отправить</button>`)}`,
+  if (h) return [`${top(t)}<div class="s-body">${practiceTask(p, c, h, i, t)}</div>${sBottom(h.done ? '<button class="btn wide" data-action="sHelperNext">Решать дальше</button>' : `<button class="btn wide" data-action="sHelperCheck" data-submit>Проверить шаг ${h.step + 1} из 3</button>`)}`,
+    h.done ? '' : `<button class="btn sm" data-action="sHelperStep">Заполнить шаг верно</button>`];
+  if (c.st === 'bad') return [`${top(t)}<div class="s-body">${practiceTask(p, c, null, i, t)}</div><div class="s-attempt">${redo ? '' : 'Попытка 1/2'}</div>
+    ${sBottom(`<button class="btn lav" data-action="sHand">✋ Позвать учителя</button><button class="btn ai" data-action="sHelper">✦ Решить с помощником</button><button class="btn wide" data-action="sRetry">↻ Решить еще раз</button>`)}`, redo ? '' : sim('simPractice', 'Класс решает')];
+  return [`${top(t)}<div class="s-body">${practiceTask(p, c, null, i, t)}</div><div class="s-attempt">${redo ? 'Дорешивание' : `Попытка ${Math.min(2, c.attempts + 1)}/2`}</div>${sBottom(`<button class="btn lav" data-action="sHand" title="Позвать учителя">✋</button>${submitBtn('practice')}`)}`,
     ansBtns(redo ? '' : sim('simPractice', 'Класс решает'))];
 }
 
 function bonusScreen(i, unlock) {
   const b = S.bonus[i]; const tasks = bonusTasks(i); const hard = strong(i);
-  if (unlock) return [`${sTop(LESSON_T, 'Бонус')}<div class="s-body center"><div style="font-size:48px">⭐</div><span class="new">✦ новое</span><b style="font-size:19px">Открыты бонусные задания!</b>
-    <span class="muted" style="max-width:340px">${hard ? 'Ты хорошо справился с практикой. Попробуй задания посложнее — их подобрал ИИ.' : 'Практика закончена. ИИ подобрал задания, похожие на те, где были ошибки, — закрепим.'}</span></div>${sBottom('<button class="btn wide" data-action="sBonusOpen">Решать бонус</button>')}`,
+  if (unlock) return [`${sTop(LESSON_T, 'Бонус')}<div class="s-body center"><div style="font-size:60px">⭐</div><span class="new">✦ новое</span><b style="font-size:22px">Открыты бонусные задания!</b>
+    <span class="muted" style="max-width:460px">${hard ? 'Ты хорошо справился с практикой. Попробуй задания посложнее — их подобрал ИИ.' : 'Практика закончена. ИИ подобрал задания, похожие на те, где были ошибки, — закрепим.'}</span></div>${sBottom('<button class="btn wide" data-action="sBonusOpen">Решать бонус</button>')}`,
     sim('simPractice', 'Класс решает')];
   const k = b.done.length;
-  if (k >= tasks.length) return [`${sTop(LESSON_T, 'Бонус')}<div class="s-body center"><div style="font-size:44px">⭐</div><b>Бонус пройден</b><span class="muted">${b.done.filter(Boolean).length} из ${tasks.length} верно</span></div>`, sim('simPractice', 'Класс решает')];
+  if (k >= tasks.length) return [`${sTop(LESSON_T, 'Бонус')}<div class="s-body center"><div style="font-size:56px">⭐</div><b>Бонус пройден</b><span class="muted">${b.done.filter(Boolean).length} из ${tasks.length} верно</span></div>`, sim('simPractice', 'Класс решает')];
   const t = tasks[k];
-  return [`${sTop(LESSON_T, dots('Бонус:', tasks.length, k, b.done.map(x => x ? 'ok' : 'bad')))}<div class="s-body"><span class="why">✦ создано ИИ · ${t.why}</span><div class="s-task">${t.text}</div><div class="expr">${t.a} · ${fmt(t.n)} = ${box('')}</div></div>${sBottom('<button class="btn wide disabled-look">Отправить</button>')}`,
-    `<button class="btn" data-action="sBonus" data-ok="1">Ответить верно (${fmt(t.ans)})</button><button class="btn out" data-action="sBonus" data-ok="0">Ответить с ошибкой</button>${sim('simPractice', 'Класс решает')}`];
+  return [`${sTop(LESSON_T, dots('Бонус:', tasks.length, k, b.done.map(x => x ? 'ok' : 'bad')))}<div class="s-body"><span class="why">✦ создано ИИ · ${t.why}</span><div class="s-task">${t.text}</div><div class="expr">${t.a} · ${fmt(t.n)} = ${inp(`b${i}-${k}`)}</div></div>${sBottom(submitBtn('bonus'))}`,
+    `<button class="btn sm" data-action="sBonus" data-ok="1">Ответить верно (${fmt(t.ans)})</button><button class="btn sm out" data-action="sBonus" data-ok="0">Ответить с ошибкой</button>${sim('simPractice', 'Класс решает')}`];
 }
 
 // ---------- Plumbing ----------
+let winPos = null; // dragged position of the tablet window
+function placeWin() {
+  const w = document.getElementById('studentWrap');
+  const s = S.view === 'student' ? Math.max(0.6, Math.min((innerWidth - 120) / 828, (innerHeight - 190) / 528, 1.5)) : 0.72;
+  w.style.setProperty('--s', s.toFixed(3));
+  const drag = S.view === 'both' && winPos;
+  w.style.left = drag ? winPos.x + 'px' : ''; w.style.top = drag ? winPos.y + 'px' : '';
+  w.style.right = drag ? 'auto' : ''; w.style.bottom = drag ? 'auto' : '';
+}
 function render() {
   const stage = document.getElementById('stage');
   stage.className = 'stage ' + ({ both: 'both', teacher: 'teacher-only', student: 'student-only' }[S.view]);
   document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view));
   document.getElementById('teacher').innerHTML = teacher();
   document.getElementById('studentWrap').innerHTML = student();
+  placeWin();
 }
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2600); }
 document.addEventListener('click', e => {
@@ -556,5 +625,23 @@ document.addEventListener('change', e => {
   const el = e.target.closest('[data-change]'); if (!el) return;
   const fn = A[el.dataset.change]; if (fn) { fn(el); render(); }
 });
+document.addEventListener('input', e => { const b = e.target.closest('[data-box]'); if (b) S.inp[b.dataset.box] = b.value; });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.closest('[data-box]')) return;
+  document.querySelector('#studentWrap [data-submit]')?.click();
+});
+document.addEventListener('pointerdown', e => {
+  const head = e.target.closest('[data-drag]');
+  if (!head || S.view !== 'both' || e.target.closest('button,select')) return;
+  const w = document.getElementById('studentWrap'); const r = w.getBoundingClientRect();
+  const dx = e.clientX - r.left, dy = e.clientY - r.top;
+  const move = ev => {
+    winPos = { x: Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)), y: Math.max(0, Math.min(innerHeight - 60, ev.clientY - dy)) };
+    placeWin();
+  };
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); e.preventDefault();
+});
+addEventListener('resize', placeWin);
 S = freshState();
 render();
