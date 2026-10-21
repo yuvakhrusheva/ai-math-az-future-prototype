@@ -59,7 +59,7 @@ const rnd = p => Math.random() < p;
 let S;
 function freshState() {
   return {
-    view: 'both', page: 'live', me: 8,
+    view: 'mini', page: 'plan', me: 8,             // tablet window: 'mini' (picture) | 'open'
     lesson: { started: false, stage: 0, stageStarted: false, task: 0, revealed: false, ended: false, hintVotes: {} },
     frontal: {},                                    // "stage-task" -> {student: 'ok'|'bad'}
     practice: STUDENTS.map(() => PRACTICE.map(() => ({ st: 'none', attempts: 0, helper: false }))),
@@ -221,7 +221,8 @@ function advance(i, force) {
 
 // Demo shortcuts: jump straight to a feature.
 function seed(kind) {
-  S = freshState(); const L = S.lesson; L.started = true;
+  S = freshState(); S.page = 'live'; const L = S.lesson; L.started = true;
+  if (['helper', 'bonus', 'hw', 'map'].includes(kind)) S.view = 'open';
   const others = (pWrong) => STUDENTS.forEach((_, i) => { if (i !== S.me) answers()[i] = rnd(pWrong) ? 'bad' : 'ok'; });
   if (kind === 'hint') { L.stage = 1; L.stageStarted = true; others(0.5); [0, 3, 5].forEach(i => answers()[i] = 'bad'); answers()[S.me] = 'bad'; }
   if (kind === 'helper' || kind === 'bonus' || kind === 'hw' || kind === 'map' || kind === 'skills') {
@@ -257,18 +258,20 @@ const CHEV = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke
 const ic = (n, s = 20) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="currentColor" aria-hidden="true">${ICON[n]}</svg>`;
 
 // ---------- Render: teacher ----------
-const NAV = [['home', 'home', 'Главная'], ['live', 'plan', 'Тематический план'], ['myclass', 'users', 'Мой класс'], ['review', 'check', 'На проверку'], ['audio', 'audio', 'Разбор урока']];
+const NAV = [['home', 'home', 'Главная'], ['plan', 'plan', 'Тематический план'], ['myclass', 'users', 'Мой класс'], ['review', 'check', 'На проверку'], ['audio', 'audio', 'Разбор урока']];
+const LIVE_NAV = ['live', 'live', 'Урок 22 · идёт'];
 const inLesson = () => S.page === 'live' && S.lesson.started && !S.lesson.ended;
 function teacher() {
   const pending = S.review.confirmed.filter(c => !c).length;
   const mini = inLesson();
-  const nav = NAV.map(([p, icon, t]) => {
+  const items = S.lesson.started && !S.lesson.ended ? [LIVE_NAV, ...NAV] : NAV;
+  const nav = items.map(([p, icon, t]) => {
     const on = S.page === p;
     const badge = p === 'review' && pending ? `<span class="cnt">${pending}</span>` : p === 'audio' ? '<span class="new sm">✦</span>' : '';
     if (mini) return `<button class="nav-ic ${on ? 'on' : ''}" data-action="nav" data-p="${p}" title="${t}">${p === 'live' ? ic('live') : ic(icon)}${p === 'live' ? '<i class="dot"></i>' : ''}</button>`;
-    return `<button class="nav ${on ? 'on' : ''}" data-action="nav" data-p="${p}">${ic(icon)}<span>${t}</span>${badge}</button>`;
+    return `<button class="nav ${on ? 'on' : ''}" data-action="nav" data-p="${p}">${ic(icon)}<span>${t}</span>${p === 'live' ? '<i class="live-dot"></i>' : badge}</button>`;
   }).join('');
-  const page = { home: tHome, live: tLive, myclass: tClass, review: tReview, audio: tAudio }[S.page]();
+  const page = { home: tHome, plan: tPlan, live: tLive, myclass: tClass, review: tReview, audio: tAudio }[S.page]();
   const side = mini
     ? `<aside class="side mini"><span class="logo">A</span><div class="nav-col">${nav}</div><span class="ava sm">НМ</span></aside>`
     : `<aside class="side"><div class="side-head"><span class="logo">A</span><b>AI Math</b><span class="muted" style="margin-left:auto">‹</span></div><div class="nav-col">${nav}</div>
@@ -303,11 +306,37 @@ function tHome() {
   </div>`;
 }
 
+// Thematic plan: modules and lessons of the course; today's lesson opens the lesson screen.
+const PLAN = [
+  { module: 'Сложение и вычитание', lessons: [[17, 'Обобщающие задания', '1 окт', 82], [18, 'МСО-1', '6 окт', 74], [19, 'Работа над ошибками', '8 окт', 69]] },
+  { module: 'Умножение и деление', lessons: [[20, 'Повторение (вспомните)', '13 окт', 77], [21, 'Умножение четырёхзначного числа на однозначное (ч.1)', '15 окт', 66], [22, 'Умножение четырёхзначного числа на однозначное (ч.2)', '20 окт', null],
+    [23, 'Задачи и примеры', '22 окт'], [24, 'Умножение многозначного числа на однозначное (ч.1)', '27 окт'], [25, 'Умножение многозначного числа на однозначное (ч.2)', '29 окт'], [26, 'Деление на однозначное число', '3 ноя']] },
+  { module: 'Величины', lessons: [[27, 'Единицы длины', '5 ноя'], [28, 'Единицы массы', '10 ноя'], [29, 'Единицы времени', '12 ноя']] },
+];
+function tPlan() {
+  const L = S.lesson;
+  const today = () => L.ended ? `<span class="tag ok">Проведён сегодня</span><button class="btn sm lav" data-action="nav" data-p="live">Итоги урока ›</button>`
+    : L.started ? `<span class="tag ok"><i class="live-dot"></i>Идёт урок</span><button class="btn sm" data-action="nav" data-p="live">Вернуться к уроку ›</button>`
+    : `<span class="tag lav">Сегодня</span><button class="btn sm lav" data-action="nav" data-p="live">Подготовка</button><button class="btn sm" data-action="startLesson">▶ Начать урок</button>`;
+  const mods = PLAN.map(m => {
+    const done = m.lessons.filter(l => l[3] != null || (l[0] === 22 && L.ended)).length;
+    const closed = done === m.lessons.length; // finished modules stay collapsed
+    const rows = m.lessons.map(([no, title, date, solv]) => {
+      const cur = no === 22; const past = solv != null;
+      const right = cur ? today() : past ? `<span class="muted">решаемость ${solv}%</span><span class="tag ok">Проведён</span>` : '<button class="btn sm grey">Материалы</button>';
+      return `<div class="prow ${cur ? 'cur' : ''} ${!past && !cur ? 'next' : ''}"><span class="pno">${no}</span><div style="flex:1;min-width:0"><b>${title}</b><div class="muted xs">${date}${cur ? ' · сегодня' : ''}</div></div><div class="row" style="gap:10px">${right}</div></div>`;
+    }).join('');
+    return `<div class="card pmod"><div class="row between"><div class="row"><span class="chev ${closed ? 'shut' : ''}">${CHEV}</span><div><h3>${m.module}</h3><div class="muted xs">${done} из ${m.lessons.length} уроков проведено</div></div></div>
+      <div class="bar" style="width:160px"><div style="width:${done / m.lessons.length * 100}%;background:var(--p)"></div></div></div>${closed ? '' : `<div class="plist">${rows}</div>`}</div>`;
+  }).join('');
+  return `<h1>Тематический план</h1><div class="sub">4-А · Математика · 1 полугодие</div><div class="col">${mods}</div>`;
+}
+
 const STAGE_TIME = ['04:48', '11:12', '09:48', '03:12', ''];
 function tLive() {
   const L = S.lesson;
   if (L.ended) return `<div class="pad">${tEnd()}</div>`;
-  if (!L.started) return `<h1>Подготовка к уроку</h1><div class="sub">Просмотрите материалы заранее и начните урок, когда класс готов</div>
+  if (!L.started) return `<button class="link-back" data-action="nav" data-p="plan">‹ Тематический план</button><h1>Подготовка к уроку</h1><div class="sub">Просмотрите материалы заранее и начните урок, когда класс готов</div>
     <div class="card row between"><div><div class="label-up" style="margin:0 0 4px">Сегодня · 4-А</div><h2>Умножение четырёхзначного числа на однозначное число (ч.2)</h2><span class="chip-l">Модуль · Умножение и деление</span></div><button class="btn" data-action="startLesson">▶ Начать урок</button></div>
     <div class="seg-tabs"><span class="on">Материалы</span><span>Аналитика</span><span class="off">Фото</span><span class="off">Домашка</span></div>
     <div class="card"><div class="label-up" style="margin-top:0">Что нового в уроке к концу года</div><ul class="ul">
@@ -464,14 +493,13 @@ Object.assign(A, {
 // ---------- Render: student tablet (floating window over the teacher app) ----------
 function student() {
   const i = S.me;
-  if (S.view === 'teacher') return `<button class="win-pill" data-action="view" data-v="both"><span class="tab-ic"></span>Планшет ученика · ${STUDENTS[i]}<span class="up">⌃</span></button>`;
-  const big = S.view === 'student';
   const [screen, ctrls] = studentScreen(i);
+  const tablet = `<div class="tablet"><div class="scaler"><div class="screen">${screen}</div></div></div>`;
+  if (S.view === 'mini') return `<div class="tab-mini" data-action="view" data-v="open" data-drag role="button" title="Нажмите, чтобы развернуть">${tablet}<div class="mini-cap"><span>Планшет · ${STUDENTS[i]}</span><span class="up">⤢</span></div></div>`;
   return `<div class="win"><div class="win-head" data-drag><span class="win-t">Планшет ученика</span>
     <select data-change="pick">${STUDENTS.map((n, k) => `<option value="${k}" ${k === i ? 'selected' : ''}>${n}</option>`).join('')}</select>
-    <span class="win-btns">${big ? '<button data-action="view" data-v="both" title="Уменьшить">⤡</button>' : '<button data-action="view" data-v="student" title="Развернуть">⤢</button>'}<button data-action="view" data-v="teacher" title="Свернуть">—</button></span></div>
-    <div class="tablet"><div class="scaler"><div class="screen">${screen}</div></div></div>
-    ${ctrls ? `<div class="controls"><span class="lbl">Быстро, без ввода:</span>${ctrls}</div>` : ''}</div>`;
+    <span class="win-btns"><button data-action="view" data-v="mini" title="Свернуть">—</button></span></div>
+    ${tablet}${ctrls ? `<div class="controls"><span class="lbl">Быстро, без ввода:</span>${ctrls}</div>` : ''}</div>`;
 }
 const initials = n => n.split(' ').map(x => x[0]).join('');
 function sTop(title, right = '', back = '') { return `<div class="s-top">${back ? `<button class="s-back" data-action="sPage" data-p="${back}">←</button>` : ''}<span class="s-title">${title}</span><span class="s-right">${right}</span></div>`; }
@@ -599,19 +627,21 @@ function bonusScreen(i, unlock) {
 }
 
 // ---------- Plumbing ----------
-let winPos = null; // dragged position of the tablet window
+const winPos = { mini: null, open: null }; // dragged positions of the tablet, per state
+let justDragged = false;
 function placeWin() {
   const w = document.getElementById('studentWrap');
-  const s = S.view === 'student' ? Math.max(0.6, Math.min((innerWidth - 120) / 828, (innerHeight - 190) / 528, 1.5)) : 0.72;
+  const s = S.view === 'mini' ? 0.27 : Math.max(0.5, Math.min(0.92, (innerWidth - 80) / 828, (innerHeight - 170) / 528));
   w.style.setProperty('--s', s.toFixed(3));
-  const drag = S.view === 'both' && winPos;
-  w.style.left = drag ? winPos.x + 'px' : ''; w.style.top = drag ? winPos.y + 'px' : '';
-  w.style.right = drag ? 'auto' : ''; w.style.bottom = drag ? 'auto' : '';
+  const pos = winPos[S.view];
+  w.style.left = w.style.top = w.style.right = w.style.bottom = '';
+  if (!pos) return;
+  const r = w.getBoundingClientRect();
+  w.style.left = Math.max(0, Math.min(innerWidth - r.width, pos.x)) + 'px';
+  w.style.top = Math.max(0, Math.min(innerHeight - r.height, pos.y)) + 'px';
+  w.style.right = w.style.bottom = 'auto';
 }
 function render() {
-  const stage = document.getElementById('stage');
-  stage.className = 'stage ' + ({ both: 'both', teacher: 'teacher-only', student: 'student-only' }[S.view]);
-  document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view));
   document.getElementById('teacher').innerHTML = teacher();
   document.getElementById('studentWrap').innerHTML = student();
   placeWin();
@@ -632,16 +662,18 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('pointerdown', e => {
   const head = e.target.closest('[data-drag]');
-  if (!head || S.view !== 'both' || e.target.closest('button,select')) return;
+  if (!head || e.target.closest('button,select,input')) return;
   const w = document.getElementById('studentWrap'); const r = w.getBoundingClientRect();
-  const dx = e.clientX - r.left, dy = e.clientY - r.top;
+  const x0 = e.clientX, y0 = e.clientY, view = S.view; let moved = false;
   const move = ev => {
-    winPos = { x: Math.max(0, Math.min(innerWidth - r.width, ev.clientX - dx)), y: Math.max(0, Math.min(innerHeight - 60, ev.clientY - dy)) };
-    placeWin();
+    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+    moved = true; winPos[view] = { x: r.left + ev.clientX - x0, y: r.top + ev.clientY - y0 }; placeWin();
   };
-  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
-  addEventListener('pointermove', move); addEventListener('pointerup', up); e.preventDefault();
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (moved) { justDragged = true; setTimeout(() => { justDragged = false; }, 0); } };
+  addEventListener('pointermove', move); addEventListener('pointerup', up);
 });
+// A drag of the tablet picture must not count as a click that opens it.
+document.addEventListener('click', e => { if (justDragged && e.target.closest('[data-drag]')) e.stopImmediatePropagation(); }, true);
 addEventListener('resize', placeWin);
 S = freshState();
 render();
