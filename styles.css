@@ -113,3 +113,12 @@ h1{font-size:24px;margin-bottom:4px} h2{font-size:17px} h3{font-size:15px}
 .modal-bg{position:fixed;inset:0;background:rgba(27,29,42,.4);display:flex;align-items:center;justify-content:center;z-index:15}
 .modal{background:#fff;border-radius:16px;padding:20px;width:520px;max-height:80vh;overflow:auto}
 select.small{font:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+
+.demo{font:inherit;font-size:13px;font-weight:600;color:var(--p);background:var(--lav);border:0;border-radius:9px;padding:7px 10px;cursor:pointer}
+.expr.steps{display:flex;flex-direction:column;gap:8px;align-items:center;font-size:15px;padding:8px 0}
+.expr.steps .ans{min-width:54px;height:32px}
+.ans.hl{border:2px solid var(--p);background:#F4F0FF;box-shadow:0 0 0 4px rgba(108,75,245,.15)}
+.chip-hint{align-self:center;background:var(--p);color:#fff;font-size:13px;font-weight:600;padding:7px 14px;border-radius:999px}
+.chip-hint.ok{background:var(--green-bg);color:var(--green)}
+.expr.steps>div{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+.map th{white-space:normal;line-height:1.2;vertical-align:bottom;padding-bottom:4px}
