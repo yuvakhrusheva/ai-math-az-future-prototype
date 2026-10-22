@@ -83,7 +83,8 @@ function freshState() {
     hwDone: STUDENTS.map(() => 0),
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     classStudent: null, audio: 'none', studentPage: 'home', redo: false,
-    past: null, pastTab: 'mat', modOpen: {}, classTab: 'main', mapTab: 'topics',        // past lesson opened from the thematic plan
+    past: null, pastTab: 'mat', modOpen: {}, classTab: 'main', mapTab: 'topics', cardTab: 'perf',
+    sk: { mode: 'crit', sel: null, student: null },   // skills map: points are criteria or skills, selected point        // past lesson opened from the thematic plan
     inp: {},                                        // values typed into the tablet boxes, by box id
   };
 }
@@ -171,9 +172,13 @@ const A = {
   hwDrop(el) { const i = +el.dataset.i, k = +el.dataset.k; S.hw.plans[i].splice(k, 1); },
   hwConfirm() { S.hw.confirmed = true; S.hw.editing = false; toast('Каждый ученик получил свою домашку'); },
   // teacher: class
-  classStudent(el) { S.classStudent = el.dataset.i === '' ? null : +el.dataset.i; },
-  openStudent(el) { S.page = 'myclass'; S.classTab = 'main'; S.classStudent = +el.dataset.i; },
-  classTab(el) { S.classTab = el.dataset.t; S.classStudent = null; },
+  classStudent(el) { S.classStudent = el.dataset.i === '' ? null : +el.dataset.i; S.cardTab = 'perf'; S.sk.sel = null; },
+  cardTab(el) { S.cardTab = el.dataset.t; },
+  skSel(el) { S.sk.sel = el.dataset.id || null; },
+  skMode(el) { S.sk.mode = el.dataset.m; S.sk.sel = null; },
+  // From the class skills map the student card opens on its skills tab with the same point selected.
+  openStudent(el) { const fromMap = S.page === 'myclass' && S.classTab === 'skills'; S.page = 'myclass'; S.classTab = 'main'; S.classStudent = +el.dataset.i; S.cardTab = fromMap ? 'skills' : 'perf'; if (!fromMap) S.sk.sel = null; },
+  classTab(el) { S.classTab = el.dataset.t; S.classStudent = null; S.sk.sel = null; },
   sMapTab(el) { S.mapTab = el.dataset.t; },
   // teacher: review
   mark(el) { const r = S.review; r.marks[r.idx][+el.dataset.k] = !r.marks[r.idx][+el.dataset.k]; },
@@ -264,6 +269,7 @@ function seed(kind) {
   if (kind === 'hw') { A.hwConfirm(); S.studentPage = 'hw'; }
   if (kind === 'map') { A.hwConfirm(); S.studentPage = 'map'; }
   if (kind === 'skills') { A.hwConfirm(); S.page = 'myclass'; S.classStudent = S.me; }
+  if (kind === 'skillmap') { L.started = false; S.page = 'myclass'; S.classTab = 'skills'; }
   if (kind === 'review') { L.started = false; S.page = 'review'; }
   if (kind === 'audio') { L.started = false; S.page = 'audio'; }
   render();
@@ -616,7 +622,7 @@ function classSummary(M) {
 function tClass() {
   const tabs = `<div class="seg-tabs"><button class="${S.classTab === 'main' ? 'on' : ''}" data-action="classTab" data-t="main">Мой класс</button><button class="${S.classTab === 'skills' ? 'on' : ''}" data-action="classTab" data-t="skills">Навыки</button></div>`;
   if (S.classTab === 'skills') return `<h1>Мой класс · 4-А</h1><div class="sub">Математика · 4 класс</div>${tabs}
-    <div class="card center" style="padding:40px 24px"><h3>Навыки класса</h3><p class="muted" style="margin-top:8px;line-height:1.5">Раздел в проектировании: навыки учеников будут разложены по графу знаний.</p></div>`;
+    <p class="muted" style="margin:-4px 0 12px">Карта навыков 4 класса: критерии и навыки, связанные пререквизитами · цвет — результат класса <span class="new sm">✦ новое</span></p>${skSection(null)}`;
   const M = STUDENTS.map((_, i) => classMetrics(i));
   if (S.classStudent !== null) return tStudentCard(S.classStudent, M[S.classStudent]);
   const avg = k => avgOf(M.map(m => m[k]));
@@ -636,14 +642,15 @@ function tStudentCard(i, m) {
   const redo = m.byLesson.filter(l => l[2]).map(([no, , left]) => `<div class="li"><span class="pno">${no}</span><span>${planLesson(no)[1]}</span><span class="tag mid" style="margin-left:auto">${left} заданий</span></div>`).join('');
   return `<button class="link-back" data-action="classStudent" data-i="">‹ Мой класс</button>
     <div class="card row" style="gap:14px"><span class="ava lg">${initials(STUDENTS[i])}</span><div><h2>${STUDENTS[i]}</h2><div class="muted">4-А · ${m.lesson}% на уроках · ${m.hw}% дома</div></div></div>
-    <div class="grid4" style="margin-top:14px">
+    <div class="seg-tabs"><button class="${S.cardTab === 'perf' ? 'on' : ''}" data-action="cardTab" data-t="perf">Успеваемость</button><button class="${S.cardTab === 'skills' ? 'on' : ''}" data-action="cardTab" data-t="skills">Навыки</button></div>
+    ${S.cardTab === 'skills' ? skSection(i) : `<div class="grid4">
       ${mtile(MT_IC.lesson, 'Решаемость на уроке', `<span class="${pctTone(m.lesson)}">${m.lesson}%</span>`, delta(m.trend))}
       ${mtile(MT_IC.attend, 'Посещаемость', `<span class="${pctTone(m.attend)}">${m.attend}%</span>`, `<span class="muted xs">${m.missed ? `пропущено уроков: ${m.missed}` : 'без пропусков'}</span>`)}
       ${mtile(MT_IC.redo, 'К дорешиванию', m.redo, '<span class="muted xs">заданий в карте знаний</span>')}
       ${mtile(MT_IC.overall, 'Общая успешность', `<span class="${pctTone(m.overall)}">${m.overall}%</span>`, `<span class="muted xs">ДЗ — ${m.hw}%</span>`)}</div>
     <div class="grid2" style="margin-top:14px;grid-template-columns:1.4fr 1fr">
       <div class="card"><h3>Решаемость по урокам</h3><p class="muted" style="margin-top:4px">Доля верно решённых заданий на каждом проведённом уроке</p>${bars}</div>
-      <div class="card"><h3>Доступно к дорешиванию</h3><p class="muted" style="margin-top:4px">Ученик дорешивает их в карте знаний</p>${redo || '<p class="muted" style="margin-top:10px">Всё решено</p>'}</div></div>`;
+      <div class="card"><h3>Доступно к дорешиванию</h3><p class="muted" style="margin-top:4px">Ученик дорешивает их в карте знаний</p>${redo || '<p class="muted" style="margin-top:10px">Всё решено</p>'}</div></div>`}`;
 }
 
 function tReview() {
