@@ -45,6 +45,17 @@ const PHOTO_WORKS = [
   { student: 9, lines: ['563 + 396 = 959', 'Ответ: холодильник', 'и плита'], ai: [false, false, false, false] },
 ];
 const CHECKLIST = ['Проверены все три пары цен — 959, 992, 825', 'Каждая сумма сравнена с 925 манатами', 'Выбрана подходящая пара — холодильник и микроволновка', 'Найден остаток — 100 манатов'];
+// AI conclusion under the checklist: what is right, what went wrong, what to do — follows the teacher's marks.
+const CHECK_OK = ['перебраны все три пары цен', 'каждая сумма сравнена с 925 манатами', 'выбрана подходящая пара — холодильник и микроволновка', 'найден остаток — 100 манатов'];
+const CHECK_BAD = ['рассмотрены не все пары цен', 'суммы не сравнены с 925 манатами, поэтому выбор пары не обоснован', 'выбрана пара, которая не подходит по деньгам', 'не найдено, сколько денег останется'];
+const CHECK_TIP = ['попросите выписать все три пары и сумму каждой', 'попросите поставить знак < или > между каждой суммой и 925', 'попросите найти пару, сумма которой не больше 925', 'попросите вычесть стоимость покупки из 925'];
+const cap = t => t[0].toUpperCase() + t.slice(1);
+function checkConclusion(m) {
+  const ok = CHECK_OK.filter((_, k) => m[k]), bad = CHECK_BAD.filter((_, k) => !m[k]), first = m.findIndex(x => !x);
+  if (!bad.length) return `Задача решена полностью: ${ok.join(', ')}. Решение записано по шагам — работу можно засчитать.`;
+  if (!ok.length) return `Задача не решена: ${bad.join(', ')}. Похоже, ученик не понял, что нужно перебрать пары покупок, — ${CHECK_TIP[0]}.`;
+  return `${cap(ok.join(', '))}. Не получилось: ${bad.join(', ')}. Совет: ${CHECK_TIP[first]}.`;
+}
 
 // Knowledge map: lessons by module (as on the real platform).
 const MAP = [
@@ -60,7 +71,7 @@ let S;
 function freshState() {
   return {
     view: 'mini', page: 'plan', me: 8,             // tablet window: 'mini' (picture) | 'open'
-    lesson: { started: false, stage: 0, stageStarted: false, task: 0, revealed: false, ended: false, hintVotes: {} },
+    lesson: { started: false, stageT0: 0, spent: [], stage: 0, stageStarted: false, task: 0, revealed: false, ended: false, hintVotes: {} },
     frontal: {},                                    // "stage-task" -> {student: 'ok'|'bad'}
     practice: STUDENTS.map(() => PRACTICE.map(() => ({ st: 'none', attempts: 0, helper: false }))),
     cur: STUDENTS.map(() => 0),
@@ -72,7 +83,7 @@ function freshState() {
     hwDone: STUDENTS.map(() => 0),
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     classStudent: null, audio: 'none', studentPage: 'home', redo: false,
-    past: null, pastTab: 'mat', modOpen: {},        // past lesson opened from the thematic plan
+    past: null, pastTab: 'mat', modOpen: {}, classTab: 'main', mapTab: 'topics',        // past lesson opened from the thematic plan
     inp: {},                                        // values typed into the tablet boxes, by box id
   };
 }
@@ -128,13 +139,15 @@ function bonusTasks(i) {
 // ---------- Actions ----------
 const A = {
   view(el) { S.view = el.dataset.v; },
-  nav(el) { S.page = el.dataset.p; },
+  nav(el) { S.page = el.dataset.p; if (S.page === 'myclass') S.classStudent = null; },
   reset() { S = freshState(); toast('Состояние сброшено'); },
   pick(el) { S.me = +el.value; S.studentPage = 'home'; S.redo = false; },
   demo(el) { if (el.value) { seed(el.value); el.value = ''; } },
   // teacher: lesson
-  startLesson() { S.lesson.started = true; S.page = 'live'; },
-  stage(el) { const st = +el.dataset.s; if (!S.lesson.started) return; Object.assign(S.lesson, { stage: st, stageStarted: false, task: 0, revealed: false }); },
+  startLesson() { S.lesson.started = true; S.lesson.stageT0 = Date.now(); S.page = 'live'; },
+  stage(el) { const st = +el.dataset.s, L = S.lesson; if (!L.started) return;
+    L.spent[L.stage] = (L.spent[L.stage] || 0) + Date.now() - (L.stageT0 || Date.now());
+    Object.assign(L, { stage: st, stageStarted: false, task: 0, revealed: false, stageT0: Date.now() }); },
   stageStart() { S.lesson.stageStarted = true; if (S.lesson.stage === 2) STUDENTS.forEach((_, i) => { if (S.practice[i][0].st === 'none') S.practice[i][0].st = 'solving'; }); },
   reveal() { S.lesson.revealed = true; },
   nextTask() {
@@ -158,7 +171,9 @@ const A = {
   hwDrop(el) { const i = +el.dataset.i, k = +el.dataset.k; S.hw.plans[i].splice(k, 1); },
   hwConfirm() { S.hw.confirmed = true; S.hw.editing = false; toast('Каждый ученик получил свою домашку'); },
   // teacher: class
-  classStudent(el) { S.classStudent = +el.dataset.i; },
+  classStudent(el) { S.classStudent = el.dataset.i === '' ? null : +el.dataset.i; },
+  classTab(el) { S.classTab = el.dataset.t; S.classStudent = null; },
+  sMapTab(el) { S.mapTab = el.dataset.t; },
   // teacher: review
   mark(el) { const r = S.review; r.marks[r.idx][+el.dataset.k] = !r.marks[r.idx][+el.dataset.k]; },
   confirmWork() { const r = S.review; r.confirmed[r.idx] = true; const next = r.confirmed.findIndex(c => !c); if (next >= 0) r.idx = next; else toast('Все работы проверены'); },
@@ -226,7 +241,7 @@ function advance(i, force) {
 
 // Demo shortcuts: jump straight to a feature.
 function seed(kind) {
-  S = freshState(); S.page = 'live'; const L = S.lesson; L.started = true;
+  S = freshState(); S.page = 'live'; const L = S.lesson; L.started = true; L.stageT0 = Date.now();
   if (['helper', 'bonus', 'hw', 'map'].includes(kind)) S.view = 'open';
   const others = (pWrong) => STUDENTS.forEach((_, i) => { if (i !== S.me) answers()[i] = rnd(pWrong) ? 'bad' : 'ok'; });
   if (kind === 'hint') { L.stage = 1; L.stageStarted = true; others(0.5); [0, 3, 5].forEach(i => answers()[i] = 'bad'); answers()[S.me] = 'bad'; }
@@ -244,7 +259,7 @@ function seed(kind) {
   if (kind === 'hw' || kind === 'map' || kind === 'skills') { A.endLesson(); }
   if (kind === 'hw') { A.hwConfirm(); S.studentPage = 'hw'; }
   if (kind === 'map') { A.hwConfirm(); S.studentPage = 'map'; }
-  if (kind === 'skills') { A.hwConfirm(); S.page = 'myclass'; }
+  if (kind === 'skills') { A.hwConfirm(); S.page = 'myclass'; S.classStudent = S.me; }
   if (kind === 'review') { L.started = false; S.page = 'review'; }
   if (kind === 'audio') { L.started = false; S.page = 'audio'; }
   render();
@@ -286,7 +301,7 @@ function teacher() {
 }
 
 function firedHints() {
-  return Object.entries(S.frontal).map(([k, a]) => [FRONTAL[k[0]]?.[k[2]], Object.values(a).filter(v => v === 'bad').length, k]).filter(([t, bad]) => t && bad >= 3);
+  return Object.entries(S.frontal).map(([k, a]) => [FRONTAL[k[0]]?.[k[2]], Object.values(a).filter(v => v === 'bad').length, k]).filter(([t, bad, k]) => t && (bad >= 3 || S.frontal[k][S.me] === 'bad'));
 }
 
 function tHome() {
@@ -440,7 +455,7 @@ function pastPhoto(no) {
   const cards = ph.works.map(([i, lines, marks]) => {
     const sc = marks.filter(Boolean).length, [c, l] = status(sc);
     return `<div class="card"><div class="row between"><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[i])}</span><b>${STUDENTS[i]}</b></span><span class="tag ${c}">${sc}/4 · ${l}</span></div>
-      <div class="notebook">${lines.join('<br>')}</div>${ph.criteria.map((t, k) => `<div class="crit"><i class="${marks[k] ? 'g' : 'r'}">${marks[k] ? '✓' : '✕'}</i><span>${t}</span></div>`).join('')}</div>`;
+      <div class="notebook">${lines.join('<br>')}</div>${ph.criteria.map((t, k) => `<div class="pcrit"><i class="${marks[k] ? 'g' : 'r'}">${marks[k] ? '✓' : '✕'}</i><span>${t}</span></div>`).join('')}</div>`;
   }).join('');
   const missing = STUDENTS.filter((_, i) => !sent.includes(i));
   return `<div class="card row between" style="margin-bottom:14px"><div><h3>Задача «${ph.title}»</h3><p class="muted">Прислали ${sent.length} из 10 · все работы проверены · <span class="new sm">✦ ИИ</span> отметил чеклист заранее, учитель подтвердил</p></div><button class="btn lav sm" data-action="openDoc">👁 Задание</button></div>
@@ -462,7 +477,16 @@ function pastHw(no) {
     <div class="hw-list">${rows.join('')}</div></div>`;
 }
 
-const STAGE_TIME = ['04:48', '11:12', '09:48', '03:12', ''];
+// Stage timer: the current stage counts down from its planned time, overtime shows as +mm:ss.
+const STAGE_PLAN = [5, 12, 10, 4, 0].map(m => m * 60000);
+const mmss = ms => { const t = Math.round(Math.abs(ms) / 1000); return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+function stageTime(k) {
+  const L = S.lesson;
+  if (k !== L.stage) return L.spent[k] ? mmss(L.spent[k]) : STAGE_PLAN[k] ? mmss(STAGE_PLAN[k]) : '';
+  const left = STAGE_PLAN[k] - (Date.now() - (L.stageT0 || Date.now()));
+  return STAGE_PLAN[k] ? (left >= 0 ? mmss(left) : `+${mmss(left)}`) : mmss(Date.now() - L.stageT0);
+}
+setInterval(() => { const el = document.querySelector('[data-timer]'); if (el && inLesson()) { el.textContent = stageTime(S.lesson.stage); el.classList.toggle('over', el.textContent[0] === '+'); } }, 1000);
 function tLive() {
   const L = S.lesson;
   if (L.ended) return `<div class="pad">${tEnd()}</div>`;
@@ -471,8 +495,8 @@ function tLive() {
     <div class="seg-tabs"><span class="on">Материалы</span><span>Аналитика</span><span class="off">Фото</span><span class="off">Домашка</span></div>
     ${tMaterials()}`;
   const stepper = STAGES.map((s, k) => k === L.stage
-    ? `<button class="step on" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}${STAGE_TIME[k] ? `<em>${STAGE_TIME[k]}</em>` : ''}</button>`
-    : `<button class="step" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}${STAGE_TIME[k] ? `<span class="t">${STAGE_TIME[k]}</span>` : ''}</button>`).join('');
+    ? `<button class="step on" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}<em data-timer>${stageTime(k)}</em></button>`
+    : `<button class="step" data-action="stage" data-s="${k}"><i>${k + 1}</i>${s}${stageTime(k) ? `<span class="t">${stageTime(k)}</span>` : ''}</button>`).join('');
   let body = '';
   if (L.stage <= 1) body = tFrontal();
   else if (L.stage === 2) body = tPractice();
@@ -490,7 +514,7 @@ function tFrontal() {
   const tabs = list.map((_, k) => `<span class="${k === L.task ? 'on' : ''}">№${k + 1}</span>`).join('');
   const vote = L.hintVotes[key()];
   const ex = Object.entries(a).find(([, v]) => v === 'bad');
-  const hint = bad >= 3 ? `<div class="hint"><div class="row between"><b>✦ ${t.hintTitle}</b><span class="red-t">${bad} из ${n}</span></div>
+  const hint = bad >= 3 || a[S.me] === 'bad' ? `<div class="hint"><div class="row between"><b>✦ ${t.hintTitle}</b><span class="red-t">${bad} из ${n}</span></div>
     <p>${t.hint}</p><div class="row between" style="margin-top:10px"><span class="muted">Пример: <span class="pill-l">${STUDENTS[+ex[0]]} ›</span></span>
     <span class="row" style="gap:8px"><button data-action="hintVote" data-v="up" class="thumb ${vote === 'up' ? 'on' : ''}">👍</button><button data-action="hintVote" data-v="down" class="thumb ${vote === 'down' ? 'on' : ''}">👎</button></span></div></div>` : '';
   const res = `<div class="label-up">Как ответил класс</div><div class="row" style="gap:14px"><span>Верно: <b class="g">${ok}</b></span><span>Неверно: <b class="r">${bad}</b></span><div class="bar" style="flex:1"><div style="width:${n ? ok / n * 100 : 0}%;background:#7ACB8B"></div></div><b class="g">${n ? Math.round(ok / n * 100) : 0}%</b></div>
@@ -535,20 +559,70 @@ function tEnd() {
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn lav" data-action="hwEdit" ${S.hw.confirmed ? 'disabled' : ''}>Изменить</button><button class="btn" data-action="hwConfirm" ${S.hw.confirmed ? 'disabled' : ''}>${S.hw.confirmed ? 'Отправлено ✓' : 'Подтвердить'}</button></div></div>${editor}`;
 }
 
-const SK_CELL = { ok: ['c-ok', '✓', 'освоено'], prog: ['c-solving', '~', 'в процессе'], gap: ['c-bad', '!', 'пробел'], none: ['', '·', 'нет данных'] };
+// My class: main metrics per student (as in platform analytics); skills go to a separate tab later.
+const PAST_NOS = [17, 18, 19, 20, 21];
+const avgOf = a => Math.round(a.reduce((x, y) => x + y, 0) / a.length);
+const pctTone = v => v >= 80 ? 'g' : v >= 60 ? 'a' : 'r';
+function classMetrics(i) {
+  const ended = S.lesson.ended;
+  const byLesson = PAST_NOS.map(no => [no, pastStats(no).rows[i].pct, pastStats(no).total - pastStats(no).rows[i].solved]);
+  if (ended) byLesson.push([22, Math.round(lessonSolved(i) / LESSON_TASKS * 100), PRACTICE.length - solvedCount(i)]);
+  const pcts = byLesson.map(l => l[1]);
+  const lesson = avgOf(pcts);
+  const missed = (hash(i, 7) < 0.3 ? 1 : 0) + (hash(i, 8) < 0.12 ? 1 : 0);
+  const attend = Math.round((byLesson.length - missed) / byLesson.length * 100);
+  const redo = byLesson.reduce((x, l) => x + l[2], 0);
+  const hw = Math.max(30, Math.min(100, Math.round(lesson + (hash(i, 9) - 0.5) * 24)));
+  const overall = Math.round((lesson + hw) / 2);
+  const trend = avgOf(pcts.slice(3)) - avgOf(pcts.slice(0, 3));
+  return { byLesson, lesson, attend, missed, redo, hw, overall, trend };
+}
+const delta = v => v ? `<span class="dchip ${v > 0 ? 'up' : 'down'}">${v > 0 ? '↑' : '↓'} ${Math.abs(v)} п.п.</span>` : '<span class="dchip">без изменений</span>';
+const MT_IC = { lesson: '◎', attend: '✓', redo: '↺', overall: '♙' };
+const mtile = (ic, label, val, foot) => `<div class="card mtile"><div class="mt-l"><span>${ic}</span>${label}</div><b>${val}</b>${foot}</div>`;
+function classSummary(M) {
+  const by = no => avgOf(STUDENTS.map((_, i) => pastStats(no).rows[i].pct));
+  const low = PAST_NOS.reduce((a, no) => by(no) < by(a) ? no : a, PAST_NOS[0]);
+  const weak = M.map((m, i) => [i, m]).filter(([, m]) => m.overall < 60);
+  const absent = M.map((m, i) => [i, m]).filter(([, m]) => m.missed);
+  const top = M.map((m, i) => [i, m]).sort((a, b) => b[1].redo - a[1].redo)[0];
+  const lessonAvg = avgOf(M.map(m => m.lesson)), tr = avgOf(M.map(m => m.trend));
+  return [`Решаемость класса на уроках — ${lessonAvg}%, за последние уроки ${tr > 0 ? `выросла на ${tr} п. п` : tr < 0 ? `снизилась на ${-tr} п. п` : 'не изменилась'}`,
+    weak.length ? `Общая успешность ниже 60% у ${weak.length} учеников: ${weak.map(([i]) => STUDENTS[i]).join(', ')} — им стоит дать задания на дорешивание и подойти на практике первыми` : 'У всех учеников общая успешность выше 60%',
+    `Самый трудный урок для класса — ${low} «${planLesson(low)[1]}» (${by(low)}%); больше всего заданий к дорешиванию — ${STUDENTS[top[0]]} (${top[1].redo})`,
+    absent.length ? `Пропускали уроки: ${absent.map(([i, m]) => `${STUDENTS[i]} (${m.missed})`).join(', ')}` : ''].filter(Boolean).join('. ') + '.';
+}
 function tClass() {
-  const sel = S.classStudent;
-  const head = `<tr><th class="th-name">Ученик</th>${SKILL_SHORT.map(s => `<th>${s}</th>`).join('')}</tr>`;
-  const rows = STUDENTS.map((n, i) => { const sk = studentSkill(i); return `<tr class="${sel === i ? 'sel' : ''}"><td class="name"><button data-action="classStudent" data-i="${i}" class="row" style="gap:8px"><span class="ava xs">${n.split(' ').map(x => x[0]).join('')}</span>${n}</button></td>${sk.map(v => `<td class="${SK_CELL[v][0]}">${SK_CELL[v][1]}</td>`).join('')}</tr>`; }).join('');
-  let side = `<div class="card" style="flex:1 1 260px"><h3>Выберите ученика</h3><p class="muted" style="margin-top:6px;line-height:1.5">Навыки считаются по ответам каждого ученика: на уроке, в практике и дома.</p></div>`;
-  if (sel !== null) {
-    const sk = studentSkill(sel); const plan = S.hw?.plans?.[sel];
-    side = `<div class="card" style="flex:1 1 260px"><div class="row" style="gap:10px"><span class="ava">${STUDENTS[sel].split(' ').map(x => x[0]).join('')}</span><h3>${STUDENTS[sel]}</h3></div>${SKILLS.map((s, k) => `<div class="skill"><span>${s}</span><span class="tag ${{ ok: 'ok', prog: 'mid', gap: 'bad', none: 'lav' }[sk[k]]}">${SK_CELL[sk[k]][2]}</span></div>`).join('')}
-      ${plan ? `<div class="label-up">В домашке</div><div class="row wrap" style="gap:6px">${plan.map((it, k) => `<span class="tag ${HW_LABEL[it.kind][0]}">${hwTask(it, k).why}</span>`).join('')}</div>` : ''}</div>`;
-  }
-  return `<h1>Мой класс · 4-А</h1><div class="sub">Навыки модуля «Умножение и деление» — по каждому ученику <span class="new sm">✦ новое</span></div>
-  <div class="flexwrap"><div class="card" style="flex:1 1 560px"><table class="map skills">${head}${rows}</table>
-  <p class="muted" style="font-size:12px;margin-top:8px">✓ освоено · ~ в процессе · ! пробел · · нет данных</p></div>${side}</div>`;
+  const tabs = `<div class="seg-tabs"><button class="${S.classTab === 'main' ? 'on' : ''}" data-action="classTab" data-t="main">Мой класс</button><button class="${S.classTab === 'skills' ? 'on' : ''}" data-action="classTab" data-t="skills">Навыки</button></div>`;
+  if (S.classTab === 'skills') return `<h1>Мой класс · 4-А</h1><div class="sub">Математика · 4 класс</div>${tabs}
+    <div class="card center" style="padding:40px 24px"><h3>Навыки класса</h3><p class="muted" style="margin-top:8px;line-height:1.5">Раздел в проектировании: навыки учеников будут разложены по графу знаний.</p></div>`;
+  const M = STUDENTS.map((_, i) => classMetrics(i));
+  if (S.classStudent !== null) return tStudentCard(S.classStudent, M[S.classStudent]);
+  const avg = k => avgOf(M.map(m => m[k]));
+  const rows = M.map((m, i) => `<button class="srow" data-action="classStudent" data-i="${i}"><span class="row" style="gap:10px"><span class="ava xs">${initials(STUDENTS[i])}</span><b>${STUDENTS[i]}</b></span>
+    <span class="${pctTone(m.lesson)}">${m.lesson}%</span><span class="${pctTone(m.attend)}">${m.attend}%</span><span>${m.redo || '—'}</span><span class="${pctTone(m.overall)}">${m.overall}%</span><span class="go">›</span></button>`).join('');
+  return `<h1>Мой класс · 4-А</h1><div class="sub">Математика · 4 класс · ${STUDENTS.length} учеников · уроки 17–${S.lesson.ended ? 22 : 21}</div>${tabs}
+    <div class="ai-sum"><div class="row" style="gap:8px"><span class="spark">✦</span><b>ИИ-сводка по классу</b><span class="new sm">✦ новое</span></div><p>${classSummary(M)}</p></div>
+    <div class="grid4">
+      ${mtile(MT_IC.lesson, 'Решаемость на уроке', `${avg('lesson')}%`, delta(avg('trend')))}
+      ${mtile(MT_IC.attend, 'Посещаемость', `${avg('attend')}%`, `<span class="muted xs">пропусков: ${M.reduce((x, m) => x + m.missed, 0)}</span>`)}
+      ${mtile(MT_IC.redo, 'К дорешиванию', M.reduce((x, m) => x + m.redo, 0), `<span class="muted xs">заданий у ${M.filter(m => m.redo).length} учеников</span>`)}
+      ${mtile(MT_IC.overall, 'Общая успешность', `${avg('overall')}%`, '<span class="muted xs">уроки и домашние задания</span>')}</div>
+    <div class="card" style="margin-top:14px"><div class="srow head"><span>Ученик</span><span>На уроке</span><span>Посещаемость</span><span>К дорешиванию</span><span>Общая успешность</span><span></span></div>${rows}</div>`;
+}
+function tStudentCard(i, m) {
+  const bars = m.byLesson.map(([no, pct, left]) => `<div class="lbar"><span><b>Урок ${no}</b> · ${planLesson(no)[1]}</span><div class="bar"><div style="width:${pct}%;background:var(--${pctTone(pct)}c)"></div></div><b class="${pctTone(pct)}">${pct}%</b></div>`).join('');
+  const redo = m.byLesson.filter(l => l[2]).map(([no, , left]) => `<div class="li"><span class="pno">${no}</span><span>${planLesson(no)[1]}</span><span class="tag mid" style="margin-left:auto">${left} заданий</span></div>`).join('');
+  return `<button class="link-back" data-action="classStudent" data-i="">‹ Мой класс</button>
+    <div class="card row" style="gap:14px"><span class="ava lg">${initials(STUDENTS[i])}</span><div><h2>${STUDENTS[i]}</h2><div class="muted">4-А · ${m.lesson}% на уроках · ${m.hw}% дома</div></div></div>
+    <div class="grid4" style="margin-top:14px">
+      ${mtile(MT_IC.lesson, 'Решаемость на уроке', `<span class="${pctTone(m.lesson)}">${m.lesson}%</span>`, delta(m.trend))}
+      ${mtile(MT_IC.attend, 'Посещаемость', `<span class="${pctTone(m.attend)}">${m.attend}%</span>`, `<span class="muted xs">${m.missed ? `пропущено уроков: ${m.missed}` : 'без пропусков'}</span>`)}
+      ${mtile(MT_IC.redo, 'К дорешиванию', m.redo, '<span class="muted xs">заданий в карте знаний</span>')}
+      ${mtile(MT_IC.overall, 'Общая успешность', `<span class="${pctTone(m.overall)}">${m.overall}%</span>`, `<span class="muted xs">ДЗ — ${m.hw}%</span>`)}</div>
+    <div class="grid2" style="margin-top:14px;grid-template-columns:1.4fr 1fr">
+      <div class="card"><h3>Решаемость по урокам</h3><p class="muted" style="margin-top:4px">Доля верно решённых заданий на каждом проведённом уроке</p>${bars}</div>
+      <div class="card"><h3>Доступно к дорешиванию</h3><p class="muted" style="margin-top:4px">Ученик дорешивает их в карте знаний</p>${redo || '<p class="muted" style="margin-top:10px">Всё решено</p>'}</div></div>`;
 }
 
 function tReview() {
@@ -561,6 +635,7 @@ function tReview() {
    <div class="card col"><div><h3>Чеклист проверки</h3><div class="row" style="margin-top:6px;gap:6px"><span class="new sm">✦ ИИ</span><span class="muted" style="font-size:12.5px">отметил предварительно — проверьте</span></div></div>
     <div class="row" style="gap:8px"><button class="btn grey sm" style="flex:1">Сбросить</button><button class="btn grey sm" style="flex:1">Отметить все</button></div>
     ${CHECKLIST.map((c, k) => `<button class="check ${m[k] ? 'on' : ''}" data-action="mark" data-k="${k}"><span class="box">${m[k] ? '✓' : ''}</span><span>${c}</span>${w.ai[k] && m[k] ? '<span class="ai-mark">ИИ</span>' : ''}</button>`).join('')}
+    <div class="ai-concl"><div class="row" style="gap:6px"><span class="spark">✦</span><b>Заключение ИИ</b></div><p>${checkConclusion(m)}</p></div>
     <div class="score ${status[0]}"><b>${score}/4</b> ${status[1]}</div>
     <div class="row"><button class="btn grey" data-action="prevWork" ${r.idx ? '' : 'disabled'}>‹ Назад</button><button class="btn" style="flex:1" data-action="confirmWork" ${r.confirmed[r.idx] ? 'disabled' : ''}>${r.confirmed[r.idx] ? 'Подтверждено ✓' : 'Подтвердить и далее ›'}</button></div></div>
    <div class="card"><div class="row" style="gap:10px"><span class="ava">${STUDENTS[w.student].split(' ').map(x => x[0]).join('')}</span><b>${STUDENTS[w.student]}</b></div><div class="row between" style="margin:12px 0 8px"><b style="font-size:13px">Фото из тетради</b><span class="muted" style="font-size:12px">1 фото</span></div><div class="notebook">${w.lines.join('<br>')}</div></div></div>`;
@@ -677,7 +752,9 @@ function studentScreen(i) {
         }).join('');
         return `<div class="mod"><div class="mod-h"><span class="chev">${CHEV}</span><div style="flex:1"><b>${m.module}</b>${m.here ? ' <span class="here">ТЫ ЗДЕСЬ</span>' : ''}<div class="muted xs">${m.lessons.filter(l => (l[2] ?? solved22) >= l[3] && l[3]).length} из ${m.lessons.length} уроков выполнено</div></div><span class="stars">★<span>★★</span></span></div>${rows}</div>`;
       }).join('');
-      return [`${sTop('Карта знаний', '', 'home')}<div class="s-body home"><h2 class="s-h2">Карта знаний</h2><div class="muted xs" style="margin-top:-8px">Пройденные и текущие темы · Математика 4 класс</div>${mods}</div>`, ''];
+      const mtabs = `<div class="seg-tabs s-tabs"><button class="${S.mapTab === 'topics' ? 'on' : ''}" data-action="sMapTab" data-t="topics">По темам</button><button class="${S.mapTab === 'skills' ? 'on' : ''}" data-action="sMapTab" data-t="skills">По навыкам</button></div>`;
+      const body = S.mapTab === 'skills' ? '<div class="s-soon"><b>Навыки</b><span class="muted">Скоро здесь появятся твои навыки по графу знаний</span></div>' : mods;
+      return [`${sTop('Карта знаний', '', 'home')}<div class="s-body home"><h2 class="s-h2">Карта знаний</h2><div class="muted xs" style="margin-top:-8px">Пройденные и текущие темы · Математика 4 класс</div>${mtabs}${body}</div>`, ''];
     }
     if (S.studentPage === 'redo') {
       const t = S.cur[i];
