@@ -172,6 +172,7 @@ const A = {
   hwConfirm() { S.hw.confirmed = true; S.hw.editing = false; toast('Каждый ученик получил свою домашку'); },
   // teacher: class
   classStudent(el) { S.classStudent = el.dataset.i === '' ? null : +el.dataset.i; },
+  openStudent(el) { S.page = 'myclass'; S.classTab = 'main'; S.classStudent = +el.dataset.i; },
   classTab(el) { S.classTab = el.dataset.t; S.classStudent = null; },
   sMapTab(el) { S.mapTab = el.dataset.t; },
   // teacher: review
@@ -217,6 +218,9 @@ const A = {
         practiceAnswer(i, rnd(0.7));
         if (S.practice[i][S.cur[i]]?.st === 'bad' && rnd(0.35) && !S.hands.includes(i)) S.hands.push(i);
       }
+      const b = S.bonus[i];
+      if (b.open && !b.seen) { if (rnd(0.75)) b.seen = true; }
+      else if (b.seen && b.done.length < bonusTasks(i).length) b.done.push(rnd(strong(i) ? 0.6 : 0.75));
     });
   },
   simReflect() { STUDENTS.forEach((_, i) => { if (i !== S.me) S.reflection[i] ||= ['😀', '🙂', '🤔'][Math.floor(Math.random() * 3)]; }); },
@@ -305,24 +309,34 @@ function firedHints() {
 }
 
 function tHome() {
-  const gaps = STUDENTS.map((n, i) => [n, studentSkill(i)]).filter(([, sk]) => sk.includes('gap'));
-  const hints = firedHints();
+  const M = STUDENTS.map((_, i) => classMetrics(i)), last = pastStats(21);
+  const today = S.bonus.some(b => b.open);
+  // Students with gaps: low overall success or "needs help" on the last lesson; tag = their weakest lesson.
+  const gaps = M.map((m, i) => [i, m]).filter(([i, m]) => m.overall < 60 || last.rows[i].st[0] === 'bad')
+    .map(([i, m]) => [i, m.byLesson.reduce((a, l) => l[1] < a[1] ? l : a)]);
+  const byLesson = PAST_NOS.map(no => [no, pastStats(no).avg]).sort((a, b) => b[1] - a[1]);
+  const good = byLesson.slice(0, 2), weak = byLesson.slice(-2).reverse();
+  const hints = firedHints(), pastHints = PAST_NOS.filter(no => PAST[no].hint);
+  const bonusTile = today ? [`${S.bonus.filter(b => b.open).length} <small>/ 10</small>`, 'дошли до бонуса сегодня']
+    : [`${last.bonusPct}%`, `решаемость бонуса на уроке 21 · открыли ${last.bonusOpened} из 10`];
   return `<h1>Добрый день, Нармин!</h1><div class="sub">Вторник, 20 октября · 4-А</div>
   <div class="hero"><div class="hero-ic">${ic('plan', 26)}</div><div style="flex:1"><div class="kicker">БЛИЖАЙШИЙ УРОК · СЕГОДНЯ</div><div class="hero-t">Урок 22 · Умножение четырёхзначного числа на однозначное (ч.2)</div>
   <div class="row" style="margin-top:8px;gap:6px"><span class="chip-w">Модуль · Умножение и деление</span><span class="chip-w">5 критериев освоения</span></div></div>
   <button class="btn white" data-action="nav" data-p="live">Подготовка к уроку ›</button></div>
-  <div class="label-up">Класс сегодня</div>
+  <div class="label-up">${today ? 'Класс сегодня' : 'Класс · по прошлым урокам'}</div>
   <div class="grid3">
-    <div class="card kpi"><span class="kpi-ic">⭐</span><b>${S.bonus.filter(b => b.open).length} <small>/ 10</small></b><span class="muted">дошли до бонуса</span></div>
-    <div class="card kpi"><span class="kpi-ic">!</span><b>${gaps.length}</b><span class="muted">учеников с пробелом в навыках</span></div>
+    <div class="card kpi"><span class="kpi-ic">★</span><b>${bonusTile[0]}</b><span class="muted">${bonusTile[1]}</span></div>
+    <div class="card kpi"><span class="kpi-ic">!</span><b>${gaps.length}</b><span class="muted">учеников с пробелами · по урокам 17–21</span></div>
     <div class="card kpi"><span class="kpi-ic">✓</span><b>${S.review.confirmed.filter(c => !c).length}</b><span class="muted">работ на проверке · ИИ отметил заранее</span></div>
   </div>
   <div class="grid2" style="margin-top:14px">
     <div class="card"><div class="row between"><h3>Ученики с пробелами</h3><span class="new">✦ новое</span></div>
-      ${gaps.length ? gaps.slice(0, 5).map(([n, sk]) => `<div class="li"><span class="ava xs">${n.split(' ').map(x => x[0]).join('')}</span><span>${n}</span><span class="tag bad" style="margin-left:auto">${sk.map((v, s) => v === 'gap' ? SKILL_SHORT[s] : null).filter(Boolean).join(', ')}</span></div>`).join('') : '<p class="muted" style="margin-top:10px">Появятся после урока</p>'}</div>
-    <div class="card"><div class="row"><span class="spark">✦</span><h3>ИИ-подсказки по фронтальной работе</h3></div>
-      ${hints.length ? hints.map(([t, bad]) => `<div class="li col-li"><b>${t.hintTitle}</b><span class="muted" style="font-size:12.5px">ошиблись ${bad} — подсказка показана на уроке</span></div>`).join('')
-        : '<p class="muted" style="margin-top:8px;line-height:1.5">Когда трое и больше учеников ошибаются во фронтальном задании, учитель сразу получает совет, как разобрать ошибку.</p>'}</div>
+      <p class="muted xs" style="margin-top:4px">Общая успешность ниже 60% или не справились на прошлом уроке · указана самая слабая тема</p>
+      ${gaps.length ? gaps.map(([i, [no, pct]]) => `<button class="li" style="width:100%;text-align:left" data-action="openStudent" data-i="${i}"><span class="ava xs">${initials(STUDENTS[i])}</span><span>${STUDENTS[i]}</span><span class="tag bad" style="margin-left:auto">${PAST[no]?.topic || planLesson(no)[1]} · ${pct}%</span></button>`).join('') : '<p class="muted" style="margin-top:10px">Пробелов нет</p>'}</div>
+    <div class="card"><div class="row"><span class="spark">✦</span><h3>Свод прошлых уроков</h3></div>
+      <div class="label-up">Получается хорошо</div>${good.map(([no, v]) => `<div class="li"><span class="tag ok">${v}%</span><span>${cap(PAST[no].topic)} <span class="muted xs">· урок ${no}</span></span></div>`).join('')}
+      <div class="label-up">Получается хуже</div>${weak.map(([no, v]) => `<div class="li col-li"><span class="row" style="gap:8px"><span class="tag ${pctTone(v) === 'r' ? 'bad' : 'mid'}">${v}%</span><span>${cap(PAST[no].topic)} <span class="muted xs">· урок ${no}</span></span></span><span class="muted" style="font-size:12.5px">Типичная ошибка: ${PAST[no].hard[0][2]}</span></div>`).join('')}
+      <p class="muted xs" style="margin-top:12px;line-height:1.5">✦ ИИ-подсказки по фронтальной работе сработали на ${pastHints.length} из ${PAST_NOS.length} уроков${hints.length ? ` и ${hints.length} раз сегодня` : ''}: когда класс массово ошибается, учитель сразу получает совет, как разобрать ошибку.</p></div>
   </div>`;
 }
 
@@ -375,31 +389,31 @@ function tMaterials(P = LESSON_PASSPORT, past = false) {
 const LINKS_STD = ['Презентация', 'Методические указания', 'Без планшетов. Презентация', 'Без планшетов. Методичка'];
 const STAGES_STD = n => [['Разминка', '3 задания'], ['Решаем вместе', `${Math.max(2, n - 9)} задания`], ['Практика', '6 заданий · треки A/B/C'], ['Рефлексия', '2 задания'], ['Домашнее задание', '5 заданий', 'ДЗ']];
 const PAST = {
-  17: { goal: 'Обобщить приёмы сложения и вычитания многозначных чисел: выбрать порядок действий в составной задаче и проверить ответ обратным действием.',
+  17: { topic: 'составные задачи на сложение и вычитание', goal: 'Обобщить приёмы сложения и вычитания многозначных чисел: выбрать порядок действий в составной задаче и проверить ответ обратным действием.',
     hard: [['Практика · №4', '8 004 − 2 567', 'вычитание с переходом через несколько разрядов: 5 547 вместо 5 437'], ['Практика · №6', 'Задача о библиотеке', 'забыли вычесть выданные книги']],
     hint: 'Ошибки при вычитании с нулями в уменьшаемом',
     photo: { title: 'Задача о библиотеке', criteria: ['Учтены и привезённые, и выданные книги', 'Вычисления выполнены без ошибок', 'Получен ответ — 2 870 книг', 'Записан ответ с наименованием'],
       works: [[1, ['2 450 + 1 380 = 3 830', '3 830 − 960 = 2 870', 'Ответ: 2 870 книг.'], [1, 1, 1, 1]], [4, ['2 450 + 1 380 = 3 830', '3 830 − 960 = 2 970', 'Ответ: 2 970'], [1, 0, 0, 0]],
         [7, ['2 450 − 960 = 1 490', '1 490 + 1 380 = 2 870', 'Ответ: 2 870 книг.'], [1, 1, 1, 1]], [3, ['2 450 + 1 380 = 3 830', 'Ответ: 3 830 книг.'], [0, 1, 0, 1]]] } },
-  18: { mso: true, goal: 'Мониторинговая работа по модулю «Сложение и вычитание»: проверить, как ученики складывают и вычитают многозначные числа и решают составные задачи. Подсказки, помощник и бонус на МСО не работают.',
+  18: { topic: 'сложение и вычитание многозначных чисел', mso: true, goal: 'Мониторинговая работа по модулю «Сложение и вычитание»: проверить, как ученики складывают и вычитают многозначные числа и решают составные задачи. Подсказки, помощник и бонус на МСО не работают.',
     stages: [['Мониторинговая работа', '16 заданий · без подсказок'], ['Задача с развёрнутым решением', 'фото из тетради']],
     hard: [['№9', '10 000 − 3 458', 'вычитание из круглого числа: 7 652 вместо 6 542'], ['№14', 'Задача про яблоки', 'нашли только второй день, без суммы']],
     photo: { title: 'Задача про яблоки', criteria: ['Найдено, сколько собрали во второй день — 1 625 кг', 'Найдено, сколько собрали за два дня', 'Вычисления выполнены без ошибок', 'Записан ответ с наименованием'],
       works: [[0, ['1 245 + 380 = 1 625 (кг)', '1 245 + 1 625 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]], [8, ['1 245 + 380 = 1 625', 'Ответ: 1 625 кг.'], [1, 0, 1, 1]],
         [5, ['1 245 − 380 = 865', '1 245 + 865 = 2 110', 'Ответ: 2 110 кг.'], [0, 1, 1, 1]], [9, ['1 245 + 380 = 1 625', '1 625 + 1 245 = 2 860'], [1, 1, 0, 0]]] } },
-  19: { goal: 'Разобрать типичные ошибки МСО-1: вычитание из круглых чисел и составные задачи. Каждый ученик дорешивает свои ошибки.',
+  19: { topic: 'вычитание с переходом через разряд', goal: 'Разобрать типичные ошибки МСО-1: вычитание из круглых чисел и составные задачи. Каждый ученик дорешивает свои ошибки.',
     hard: [['Практика · №3', '7 000 − 2 816', 'заём из разряда с нулём: 5 284 вместо 4 184'], ['Практика · №5', 'Задача про яблоки', 'путают «на … больше» и «в … раз больше»']],
     hint: 'Заём через несколько нулей',
     photo: { title: 'Задача про яблоки — исправление', criteria: ['Найдено, сколько собрали во второй день — 1 625 кг', 'Найдено, сколько собрали за два дня', 'Вычисления выполнены без ошибок', 'Записан ответ с наименованием'],
       works: [[8, ['1 245 + 380 = 1 625 (кг)', '1 245 + 1 625 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]], [5, ['1 245 + 380 = 1 625 (кг)', '1 625 + 1 245 = 2 870 (кг)', 'Ответ: 2 870 кг.'], [1, 1, 1, 1]],
         [9, ['1 245 + 380 = 1 625', '1 625 + 1 245 = 2 860', 'Ответ: 2 860 кг.'], [1, 1, 0, 1]]] } },
-  20: { goal: 'Повторить таблицу умножения и умножение круглых чисел перед модулем «Умножение и деление».',
+  20: { topic: 'табличное умножение и круглые числа', goal: 'Повторить таблицу умножения и умножение круглых чисел перед модулем «Умножение и деление».',
     hard: [['Разминка · №2', '7 · 8', '54 вместо 56'], ['Практика · №5', '400 · 6', 'потерян ноль: 240']],
     hint: 'Путаница в табличном умножении на 7 и 8',
     photo: { title: 'Ручки и тетради', criteria: ['Найдена стоимость ручек — 8 ман.', 'Найдена стоимость тетрадей — 3 ман.', 'Найдена общая стоимость — 11 ман.', 'Записан ответ с наименованием'],
       works: [[2, ['2 · 4 = 8 (ман.)', '1 · 3 = 3 (ман.)', '8 + 3 = 11 (ман.)', 'Ответ: 11 манатов.'], [1, 1, 1, 1]], [6, ['2 · 4 = 8', '8 + 3 = 11'], [1, 0, 1, 0]],
         [1, ['2 + 4 = 6', '6 + 3 = 9', 'Ответ: 9 ман.'], [0, 1, 0, 1]]] } },
-  21: { goal: 'Ввести приём умножения четырёхзначного числа на однозначное: разложить множитель на разрядные слагаемые, найти неполные произведения и сложить их.', standards: LESSON_PASSPORT.standards,
+  21: { topic: 'неполные произведения при умножении', goal: 'Ввести приём умножения четырёхзначного числа на однозначное: разложить множитель на разрядные слагаемые, найти неполные произведения и сложить их.', standards: LESSON_PASSPORT.standards,
     hard: [['Практика · №4', '3 241 · 2 = ?', 'потеряно неполное произведение 40 · 2'], ['Практика · №6', '1 221 · 4 = ?', 'разряды сложены со сдвигом: 4 884 → 4 844']],
     hint: 'Ошибки в неполных произведениях',
     photo: { title: 'Фабрика коробок', criteria: ['Множитель разложен на разрядные слагаемые', 'Найдены все неполные произведения', 'Неполные произведения сложены верно', 'Ответ — 3 639 коробок'],
@@ -416,12 +430,15 @@ function pastStats(no) {
     const solved = Math.round(total * r);
     const first = Math.max(0, solved - Math.round(hash(no, i, 2) * 3));
     const helper = mso ? 0 : Math.round(hash(no, i, 3) * 2.4);
-    const bonus = !mso && r >= 0.6;
+    // Bonus is extra: it is not part of the lesson solvability; students who did not open it have no data.
+    const bonus = !mso && r >= 0.6 && hash(no, i, 6) < 0.85 ? { total: 3, ok: Math.round(3 * (0.35 + hash(no, i, 10) * 0.65)) } : null;
     const st = r >= 0.8 ? ['ok', 'освоил'] : r >= 0.5 ? ['mid', 'частично'] : ['bad', 'нужна помощь'];
     return { i, solved, first, helper, bonus, st, pct: Math.round(solved / total * 100) };
   });
   const avg = Math.round(rows.reduce((a, r) => a + r.pct, 0) / rows.length);
-  return { rows, avg, total, mso };
+  const bo = rows.filter(r => r.bonus);
+  const bonusPct = bo.length ? Math.round(bo.reduce((a, r) => a + r.bonus.ok, 0) / bo.reduce((a, r) => a + r.bonus.total, 0) * 100) : null;
+  return { rows, avg, total, mso, bonusOpened: bo.length, bonusPct };
 }
 
 function tPast() {
@@ -436,11 +453,12 @@ function pastAnalytics(no) {
   const help = st.rows.filter(r => r.st[0] === 'bad');
   const stages = st.mso ? [['Мониторинговая работа', st.avg]] : [['Разминка', Math.min(97, st.avg + 13)], ['Решаем вместе', Math.max(30, st.avg - 6)], ['Практика', st.avg]];
   const kpi3 = st.mso ? [st.rows.filter(r => r.st[0] === 'ok').length, 'учеников освоили модуль'] : [st.rows.filter(r => r.helper).length, 'решали с ✦ ИИ-помощником'];
-  const head = `<tr><th>Ученик</th><th>Решено</th><th>С первой попытки</th>${st.mso ? '' : '<th>✦ Помощник</th><th>⭐ Бонус</th>'}<th>Итог</th></tr>`;
-  const rows = st.rows.map(r => `<tr><td><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[r.i])}</span>${STUDENTS[r.i]}</span></td><td><b>${r.solved}</b><span class="muted"> / ${st.total}</span></td><td>${r.first}</td>${st.mso ? '' : `<td>${r.helper ? `${r.helper} зад.` : '<span class="muted">—</span>'}</td><td>${r.bonus ? '⭐' : '<span class="muted">—</span>'}</td>`}<td><span class="tag ${r.st[0]}">${r.st[1]}</span></td></tr>`).join('');
+  const head = `<tr><th>Ученик</th><th>Решено</th><th>С первой попытки</th>${st.mso ? '' : '<th>✦ Помощник</th><th>Бонус</th><th>Решаемость бонуса</th>'}<th>Итог</th></tr>`;
+  const rows = st.rows.map(r => `<tr><td><span class="row" style="gap:8px"><span class="ava xs">${initials(STUDENTS[r.i])}</span>${STUDENTS[r.i]}</span></td><td><b>${r.solved}</b><span class="muted"> / ${st.total}</span></td><td>${r.first}</td>${st.mso ? '' : `<td>${r.helper ? `${r.helper} зад.` : '<span class="muted">—</span>'}</td><td>${r.bonus ? `${r.bonus.ok} из ${r.bonus.total}` : ''}</td><td>${r.bonus ? `<b class="${pctTone(r.bonus.ok / r.bonus.total * 100)}">${Math.round(r.bonus.ok / r.bonus.total * 100)}%</b>` : ''}</td>`}<td><span class="tag ${r.st[0]}">${r.st[1]}</span></td></tr>`).join('');
   return `<div class="grid3">
     <div class="card kpi"><span class="kpi-ic">%</span><b>${st.avg}%</b><span class="muted">решаемость урока</span></div>
-    <div class="card kpi"><span class="kpi-ic">${st.mso ? '✓' : '⭐'}</span><b>${st.mso ? 10 : st.rows.filter(r => r.bonus).length} <small>/ 10</small></b><span class="muted">${st.mso ? 'сдали работу' : 'дошли до бонуса'}</span></div>
+    ${st.mso ? '<div class="card kpi"><span class="kpi-ic">✓</span><b>10 <small>/ 10</small></b><span class="muted">сдали работу</span></div>'
+      : `<div class="card kpi"><span class="kpi-ic">★</span><b>${st.bonusPct}%</b><span class="muted">решаемость бонуса · открыли ${st.bonusOpened} из 10 · в решаемость урока не входит</span></div>`}
     <div class="card kpi"><span class="kpi-ic">${st.mso ? '★' : '✦'}</span><b>${kpi3[0]}</b><span class="muted">${kpi3[1]}</span></div></div>
   <div class="grid2" style="margin-top:14px">
     <div class="card"><h3>Решаемость по этапам</h3>${stages.map(([n, v]) => `<div class="stage-bar"><span>${n}</span><div class="bar"><div style="width:${v}%;background:var(--p)"></div></div><b>${v}%</b></div>`).join('')}
@@ -524,23 +542,26 @@ function tFrontal() {
     ${hint}${L.revealed ? `<div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn" data-action="nextTask">Дальше ›</button></div>` : ''}</div>`;
 }
 
+// Bonus cell: correct of answered bonus tasks; empty until the student opens the bonus.
+function bonusCell(i) { const b = S.bonus[i]; if (!b.seen) return ''; return b.done.length ? `${b.done.filter(Boolean).length}/${b.done.length}` : '•••'; }
+function bonusPctLive() { const d = S.bonus.flatMap(b => b.seen ? b.done : []); return d.length ? Math.round(d.filter(Boolean).length / d.length * 100) : null; }
 function tPractice() {
   if (!S.lesson.stageStarted) return `<div class="card mid-card row between"><div><h3>Практика · самостоятельная работа</h3><p class="muted">Ученики решают задания на планшетах по трекам. После старта карта класса заполняется в реальном времени: кто решил, кто ошибается, кто поднял руку.</p></div><button class="btn" data-action="stageStart">▶ Старт</button></div>`;
   const legend = [['#DDF6D5', 'решено'], ['#FBEBB8', 'частично'], ['#E4E6F8', 'принято'], ['#FBDCD6', 'ошибается'], ['#EEF0FA', 'на проверке'], ['#FFF4D9', 'решает'], ['#F1F0F6', 'не дошёл']].map(([c, l]) => `<span class="lg"><i style="background:${c}"></i>${l}</span>`).join('');
-  const head = `<tr><th class="th-name">Ученик</th>${PRACTICE.map((_, k) => `<th>${k + 1}</th>`).join('')}<th>⭐</th><th>✓</th></tr>`;
+  const head = `<tr><th class="th-name">Ученик</th>${PRACTICE.map((_, k) => `<th>${k + 1}</th>`).join('')}<th>Бонус</th><th>✓</th></tr>`;
   const rows = STUDENTS.map((n, i) => `<tr><td class="name"><span class="trk">A</span>${n}${S.hands.includes(i) ? ' <span class="hand">✋</span>' : ''}</td>${S.practice[i].map(c => {
     const cls = { ok: 'c-ok', bad: 'c-bad', solving: 'c-solving', none: '' }[c.st];
     const label = c.st === 'ok' ? c.attempts : c.st === 'bad' ? (c.attempts >= 2 ? '✕' : c.attempts) : c.st === 'solving' ? '•••' : '';
     return `<td class="${cls}">${label}${c.helper ? '<span class="helper-dot">✦</span>' : ''}</td>`;
-  }).join('')}<td>${S.bonus[i].open ? '⭐' : ''}</td><td class="muted">${solvedCount(i)}/7</td></tr>`).join('');
-  const reached = STUDENTS.map((n, i) => [n, i]).filter(([, i]) => S.bonus[i].open);
+  }).join('')}<td class="${S.bonus[i].seen ? 'c-bonus' : ''}">${bonusCell(i)}</td><td class="muted">${solvedCount(i)}/7</td></tr>`).join('');
+  const reached = STUDENTS.map((n, i) => [n, i]).filter(([, i]) => S.bonus[i].open), opened = reached.filter(([, i]) => S.bonus[i].seen);
   return `<div class="grid2" style="grid-template-columns:1fr 270px">
     <div class="card"><div class="row between wrap" style="gap:8px"><h3>Live-карта класса</h3><div class="legend-row">${legend}</div></div>
-      <div class="muted" style="font-size:12px;margin:6px 0 2px"><span class="new sm">✦ новое</span> ✦ в ячейке — решал с ИИ-помощником · ⭐ — в бонусе</div>
+      <div class="muted" style="font-size:12px;margin:6px 0 2px"><span class="new sm">✦ новое</span> ✦ в ячейке — решал с ИИ-помощником · Бонус — верно из решённых бонусных (в решаемость урока не входит)</div>
       <table class="map">${head}${rows}</table></div>
     <div class="col"><div class="card"><h3>✋ Подняли руку · ${S.hands.length}</h3><p class="muted" style="font-size:12px">по времени ожидания · закрываете вы</p>${S.hands.length ? S.hands.map(i => `<div class="queue-item"><span>${STUDENTS[i]}</span><button class="okbtn" data-action="cameOver" data-i="${i}">✓ Подошёл</button></div>`).join('') : '<p class="muted center" style="margin-top:12px">Очередь пуста</p>'}</div>
       <div class="card"><div class="row between"><h3>⭐ Бонус</h3><span class="new sm">✦</span></div><p class="muted" style="font-size:12px;margin-top:4px;line-height:1.45">Открывается каждому, кто закончил практику: 70%+ с первой попытки — посложнее, остальным — похожие на те, где ошибся.</p>
-      <p style="margin-top:8px">В бонусе: <b>${reached.length} из 10</b></p>${reached.map(([n, i]) => `<div class="row between" style="margin-top:5px"><span>${n}</span><span class="tag ${strong(i) ? 'ok' : 'mid'}">${strong(i) ? 'посложнее' : 'по ошибкам'}</span></div>`).join('')}</div></div></div>`;
+      <p style="margin-top:8px">Открыли: <b>${opened.length} из 10</b>${bonusPctLive() != null ? ` · решаемость <b>${bonusPctLive()}%</b>` : ''}</p>${reached.map(([n, i]) => `<div class="row between" style="margin-top:5px;gap:6px"><span>${n}</span><span class="row" style="gap:6px">${S.bonus[i].done.length ? `<b class="xs">${bonusCell(i)}</b>` : ''}<span class="tag ${strong(i) ? 'ok' : 'mid'}">${strong(i) ? 'посложнее' : 'по ошибкам'}</span></span></div>`).join('')}</div></div></div>`;
 }
 
 const HW_LABEL = { err: ['bad', 'ошибки урока'], skill: ['mid', 'слабый навык'], keep: ['lav', 'закрепление'], hard: ['ok', 'посложнее'] };

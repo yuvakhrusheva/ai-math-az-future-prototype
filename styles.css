@@ -330,3 +330,4 @@ input.ans:focus{background:#fff;border:2px solid var(--p);box-shadow:0 0 0 4px r
 .s-tabs{margin:4px 0 6px;font-size:15px} .s-tabs button{font-size:15px}
 .s-soon{display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;text-align:center;padding:40px 20px;background:#fff;border-radius:16px}
 .step em.over{background:#FF8A7A}
+.map td.c-bonus{background:#F1ECFF;color:var(--p)}
