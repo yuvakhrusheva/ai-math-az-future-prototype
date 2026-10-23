@@ -216,7 +216,7 @@ function skCard(M, sel, si) {
     <h3 style="margin:8px 0 4px">${skEsc(n.title)}</h3>
     <p class="muted xs" style="margin-bottom:10px">${S.sk.mode === 'crit' ? 'Навык: ' + skEsc(s.name) : sub ? skEsc(sub.text) : 'Пререквизит из 3 класса'}</p>
     ${skProgress(M, n, si)}
-    <div class="sk-h">Опирается напрямую · ${pre.length}</div>${pre.map(e => skItem(M.nodes.get(e.s), '', si)).join('') || '<p class="muted xs">Разминок перед этой темой нет</p>'}
+    <div class="sk-h">Опирается напрямую · ${pre.length}</div>${pre.map(e => skItem(M.nodes.get(e.s), '', si)).join('') || '<p class="muted xs">Пререквизитов нет — это одна из стартовых тем</p>'}
     <div class="sk-h">Открывает · ${post.length}</div>${post.map(e => skItem(M.nodes.get(e.t), '', si)).join('') || '<p class="muted xs">Пока ни на что не ведёт</p>'}</div>`;
 }
 // si: student index for the student card, null for the whole class.
