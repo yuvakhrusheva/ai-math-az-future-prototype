@@ -256,7 +256,7 @@ function seed(kind) {
   if (['helper', 'bonus', 'hw', 'map', 'kidskills'].includes(kind)) S.view = 'open';
   const others = (pWrong) => STUDENTS.forEach((_, i) => { if (i !== S.me) answers()[i] = rnd(pWrong) ? 'bad' : 'ok'; });
   if (kind === 'hint') { L.stage = 1; L.stageStarted = true; others(0.5); [0, 3, 5].forEach(i => answers()[i] = 'bad'); answers()[S.me] = 'bad'; }
-  if (kind === 'helper' || kind === 'bonus' || kind === 'hw' || kind === 'map' || kind === 'kidskills' || kind === 'skills') {
+  if (kind === 'helper' || kind === 'bonus' || kind === 'hw' || kind === 'map' || kind === 'skills') {
     L.stage = 1; L.stageStarted = true; L.revealed = true; others(0.5); answers()[S.me] = 'bad';
     L.stage = 2; A.stageStart(); A.simPractice(); A.simPractice();
   }
@@ -267,10 +267,11 @@ function seed(kind) {
     let k = 0; while (!finishedPractice(S.me) && k < 20) practiceAnswer(S.me, k++ !== 2);
     for (let k = 0; k < 3; k++) A.simPractice();
   }
-  if (kind === 'hw' || kind === 'map' || kind === 'kidskills' || kind === 'skills') { A.endLesson(); }
+  if (kind === 'hw' || kind === 'map' || kind === 'skills') { A.endLesson(); }
   if (kind === 'hw') { A.hwConfirm(); S.studentPage = 'hw'; }
-  if (kind === 'map') { A.hwConfirm(); S.studentPage = 'map'; }
-  if (kind === 'kidskills') { A.hwConfirm(); S.studentPage = 'map'; S.mapTab = 'skills'; }
+  // Knowledge map demos: the student is outside a lesson (lesson 22 already held for «map»), the teacher is on the home page.
+  if (kind === 'map') { A.hwConfirm(); S.studentPage = 'map'; S.page = 'home'; }
+  if (kind === 'kidskills') { L.started = false; S.studentPage = 'map'; S.mapTab = 'skills'; S.page = 'home'; }
   if (kind === 'skills') { A.hwConfirm(); S.page = 'myclass'; S.classStudent = S.me; }
   if (kind === 'skillmap') { L.started = false; S.page = 'myclass'; S.classTab = 'skills'; }
   if (kind === 'review') { L.started = false; S.page = 'review'; }
