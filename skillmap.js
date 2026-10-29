@@ -106,27 +106,31 @@ function skChain(M, id) { const seen = new Set(), q = [id];
   while (q.length) { const v = q.pop(); for (const e of M.pre.get(v) || []) if (!seen.has(e.s) && e.s !== id) { seen.add(e.s); q.push(e.s); } } return seen; }
 function skDependents(M, id) { const seen = new Set(), q = [id];
   while (q.length) { const v = q.pop(); for (const e of M.post.get(v) || []) if (!seen.has(e.t) && e.t !== id) { seen.add(e.t); q.push(e.t); } } return seen; }
-let skSelKey = '', skSelSet = null, skUnlocks = null;
-function skSelection(M) {
-  const sel = S.sk.sel && M.nodes.has(S.sk.sel) ? S.sk.sel : null, key = S.sk.mode + sel;
-  if (key !== skSelKey) { skSelKey = key; skSelSet = sel ? skChain(M, sel) : null; skUnlocks = sel ? new Set((M.post.get(sel) || []).map(e => e.t)) : null; }
-  return sel;
+const skSelCache = new Map();
+function skSelInfo(M, mode, id) {
+  const sel = id && M.nodes.has(id) ? id : null, key = mode + sel;
+  if (!skSelCache.has(key)) skSelCache.set(key, { sel, set: sel ? skChain(M, sel) : null, unlocks: sel ? new Set((M.post.get(sel) || []).map(e => e.t)) : null });
+  return skSelCache.get(key);
 }
+let skSelSet = null, skUnlocks = null;
+function skSelection(M) { const x = skSelInfo(M, S.sk.mode, S.sk.sel); skSelSet = x.set; skUnlocks = x.unlocks; return x.sel; }
 
-// Canvas: drawn every frame into whichever #skcv is on the page (the teacher view is re-rendered on every action).
-let skYaw = 0.6, skPitch = -0.32, skZoom = 1, skProj = [], skDrag = null;
+// Canvas: every .skcv on the page is drawn each frame (views are re-rendered on every action).
+// data-kid marks the student tablet map: skills mode, the tablet's student, its own selection.
+let skYaw = 0.6, skPitch = -0.32, skZoom = 1, skDrag = null;
 const skReduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const skCvView = cv => cv.dataset.kid != null ? { mode: 'skill', sel: S.kidSk.sel, si: S.me, medals: skKidMedals(S.me) } : { mode: S.sk.mode, sel: S.sk.sel, si: S.sk.student };
 function skFrame() {
-  const cv = document.getElementById('skcv');
-  if (cv && cv.clientWidth) skDraw(cv);
+  const cvs = [...document.querySelectorAll('.skcv')].filter(cv => cv.clientWidth);
+  if (!skDrag && !skReduce && cvs.length && !cvs.some(cv => skCvView(cv).sel)) skYaw += 0.0016;
+  cvs.forEach(skDraw);
   requestAnimationFrame(skFrame);
 }
 function skDraw(cv) {
   const DPR = Math.min(devicePixelRatio || 1, 2), W = cv.clientWidth, H = cv.clientHeight;
   if (cv.width !== Math.round(W * DPR) || cv.height !== Math.round(H * DPR)) { cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); }
   const ctx = cv.getContext('2d'); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const M = skModel(), sel = skSelection(M), si = S.sk.student;
-  if (!skDrag && !sel && !skReduce) skYaw += 0.0016;
+  const V = skCvView(cv), M = skModel(V.mode), { sel, set: selSet, unlocks } = skSelInfo(M, V.mode, V.sel), si = V.si;
   const cx = W / 2, cy = H / 2, scale = Math.min(W, H) * 0.42 * skZoom;
   const cyaw = Math.cos(skYaw), syaw = Math.sin(skYaw), cp = Math.cos(skPitch), sp = Math.sin(skPitch);
   ctx.clearRect(0, 0, W, H);
@@ -137,7 +141,7 @@ function skDraw(cv) {
   }
   for (const e of M.edges) {
     const a = P.get(e.s), b = P.get(e.t); if (!a || !b) continue;
-    const hot = sel && (skSelSet.has(e.s) || e.s === sel) && (skSelSet.has(e.t) || e.t === sel), nxt = sel && e.s === sel && skUnlocks.has(e.t);
+    const hot = sel && (selSet.has(e.s) || e.s === sel) && (selSet.has(e.t) || e.t === sel), nxt = sel && e.s === sel && unlocks.has(e.t);
     ctx.lineWidth = 0.7;
     if (sel && !hot && !nxt) ctx.strokeStyle = 'rgba(16,24,40,0.03)';
     else if (hot) { ctx.strokeStyle = 'rgba(88,0,229,0.85)'; ctx.lineWidth = 1.1; }
@@ -146,30 +150,34 @@ function skDraw(cv) {
     if (!e.warm) { ctx.setLineDash([4, 4]); if (!sel) ctx.strokeStyle = 'rgba(88,0,229,0.30)'; }
     ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); ctx.setLineDash([]);
   }
-  skProj = [...P.values()].sort((a, b) => b.z - a.z);
-  for (const p of skProj) {
-    const n = p.n, r = (2.2 + Math.sqrt(n.deg) * 1.35) * p.f * (S.sk.mode === 'skill' ? 1.5 : 1) * Math.sqrt(skZoom); p.r = r;
-    const on = !sel || n.id === sel || skSelSet.has(n.id) || skUnlocks.has(n.id);
+  cv.proj = [...P.values()].sort((a, b) => b.z - a.z);
+  for (const p of cv.proj) {
+    const n = p.n, r = (2.2 + Math.sqrt(n.deg) * 1.35) * p.f * (V.mode === 'skill' ? 1.5 : 1) * Math.sqrt(skZoom); p.r = r;
+    const on = !sel || n.id === sel || selSet.has(n.id) || unlocks.has(n.id);
     ctx.globalAlpha = on ? Math.max(0.55, Math.min(1, 1.25 - p.z * 0.5)) : 0.08;
     ctx.fillStyle = SK_STATUS[skStatusOf(skVal(si, n.id))].color;
     ctx.beginPath(); ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2); ctx.fill();
+    if (V.medals?.has(n.id)) { ctx.strokeStyle = '#F0A800'; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(p.sx, p.sy, r + 2.5, 0, Math.PI * 2); ctx.stroke(); }
     if (n.id === sel) { ctx.globalAlpha = 1; ctx.strokeStyle = '#101828'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.sx, p.sy, r + 4, 0, Math.PI * 2); ctx.stroke(); }
   }
   ctx.globalAlpha = 1;
 }
 function skPick(cv, x, y) {
-  const r = cv.getBoundingClientRect(); let best = null, bd = 1e9;
-  for (const p of skProj) { const d = Math.hypot(p.sx - (x - r.left), p.sy - (y - r.top)); if (d < Math.max(p.r + 5, 9) && d < bd) { bd = d; best = p; } }
-  S.sk.sel = best ? best.n.id : null; render();
+  // The tablet is CSS-scaled: map client coordinates back to the canvas' own pixels.
+  const r = cv.getBoundingClientRect(), k = cv.clientWidth / r.width, px = (x - r.left) * k, py = (y - r.top) * k; let best = null, bd = 1e9;
+  for (const p of cv.proj || []) { const d = Math.hypot(p.sx - px, p.sy - py); if (d < Math.max(p.r + 5, 9) && d < bd) { bd = d; best = p; } }
+  const id = best ? best.n.id : null;
+  if (cv.dataset.kid != null) S.kidSk.sel = id; else S.sk.sel = id;
+  render();
 }
-document.addEventListener('pointerdown', e => { const cv = e.target.closest('#skcv'); if (!cv) return;
-  skDrag = { x: e.clientX, y: e.clientY, yaw: skYaw, pitch: skPitch, moved: false }; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); });
+document.addEventListener('pointerdown', e => { const cv = e.target.closest('.skcv'); if (!cv) return;
+  skDrag = { cv, x: e.clientX, y: e.clientY, yaw: skYaw, pitch: skPitch, moved: false }; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); });
 document.addEventListener('pointermove', e => { if (!skDrag) return; const dx = e.clientX - skDrag.x, dy = e.clientY - skDrag.y;
   if (Math.abs(dx) + Math.abs(dy) > 4) skDrag.moved = true;
   skYaw = skDrag.yaw + dx * 0.006; skPitch = Math.max(-1.2, Math.min(1.2, skDrag.pitch + dy * 0.004)); });
-document.addEventListener('pointerup', e => { const d = skDrag; if (!d) return; skDrag = null; const cv = document.getElementById('skcv');
-  cv?.classList.remove('drag'); if (cv && !d.moved) skPick(cv, e.clientX, e.clientY); });
-document.addEventListener('wheel', e => { if (!e.target.closest('#skcv')) return; e.preventDefault(); skZoom = Math.max(0.5, Math.min(4, skZoom * Math.exp(-e.deltaY * 0.0012))); }, { passive: false });
+document.addEventListener('pointerup', e => { const d = skDrag; if (!d) return; skDrag = null;
+  d.cv.classList.remove('drag'); if (d.cv.isConnected && !d.moved) skPick(d.cv, e.clientX, e.clientY); });
+document.addEventListener('wheel', e => { if (!e.target.closest('.skcv')) return; e.preventDefault(); skZoom = Math.max(0.5, Math.min(4, skZoom * Math.exp(-e.deltaY * 0.0012))); }, { passive: false });
 requestAnimationFrame(skFrame);
 
 // Side panels: class bottlenecks / student's main gaps, and the card of the selected point.
@@ -232,7 +240,7 @@ function skSection(si) {
   const legend = ['ok', 'mid', 'gap', 'none'].map(k => `<span class="lg">${skDot(k)}${SK_STATUS[k].name}</span>`).join('');
   return `<div class="sk-wrap">
     <div class="card sk-stage"><div class="row between wrap" style="gap:8px">${modes}<div class="legend-row">${legend}</div></div>
-      <canvas id="skcv" aria-label="Карта навыков: точки — ${what}, линии — пререквизиты"></canvas>
+      <canvas class="skcv" aria-label="Карта навыков: точки — ${what}, линии — пререквизиты"></canvas>
       <p class="muted xs">Тяните — вращать · колесо — масштаб · нажмите на точку, чтобы увидеть её пререквизиты · ниже — раньше в курсе · пунктир — экспертные мосты между разделами</p></div>
     <div class="sk-side">${sel ? skCard(M, sel, si) : ''}
       <div class="card"><div class="sk-stats">${['ok', 'mid', 'gap', 'none'].map(k => `<div><b style="color:${k === 'none' ? 'var(--muted)' : SK_STATUS[k].color}">${cnt[k]}</b><span>${SK_STATUS[k].name}</span></div>`).join('')}</div>
@@ -241,10 +249,9 @@ function skSection(si) {
         <p class="muted xs" style="margin-top:10px">Цвет точки — ${si == null ? 'средний результат класса' : 'результат ученика'}: от 75% — освоено, 55–74% — закрепить, ниже — пробел. Результаты смоделированы.</p></div></div></div>`;
 }
 
-// ---------- Student tablet: «Мои навыки» pie (ALEKS-like) ----------
-// One slice per topic group, slice size = number of skills; the slice fills from the centre with mastered skills
-// (full colour) and skills in progress (light). A skill earns a medal when every criterion taught in the course is mastered.
-const SK_KID_GROUPS = SK_GROUPS.filter(g => g.id !== 'g3');
+// ---------- Student tablet: «Мои навыки» — the same skills map, coloured by the student's own results ----------
+// Skills mode only, child-friendly wording; a skill earns a medal when every criterion taught in the course is mastered.
+const SK_KID_ST = { ok: 'Освоено', mid: 'Почти получилось', gap: 'Нужно повторить', none: 'Скоро' };
 function skKidSkill(si, s) {
   const R = skResults()[si], taught = s.crit.filter(c => c.first != null);
   const done = taught.filter(c => R[c.id] != null && R[c.id] >= 75).length, studied = taught.filter(c => R[c.id] != null).length;
@@ -252,55 +259,39 @@ function skKidSkill(si, s) {
   const next = taught.find(c => !(R[c.id] >= 75));
   return { s, st, done, total: taught.length, studied, next: next && R[next.id] != null ? next : null };
 }
-function skKidData(si) {
-  return SK_KID_GROUPS.map(g => {
-    const skills = SKD.skills.filter(s => s.grade === 4 && skGroupOf(s.id) === g && s.crit.some(c => c.first != null)).map(s => skKidSkill(si, s));
-    return { g, skills, medal: skills.filter(x => x.st === 'medal').length, learn: skills.filter(x => x.st === 'learn').length };
-  }).filter(x => x.skills.length);
-}
-const skArc = (cx, cy, r0, r1, a0, a1) => {
-  const p = (r, a) => `${(cx + r * Math.sin(a)).toFixed(1)} ${(cy - r * Math.cos(a)).toFixed(1)}`, big = a1 - a0 > Math.PI ? 1 : 0;
-  return `M${p(r0, a0)} L${p(r1, a0)} A${r1} ${r1} 0 ${big} 1 ${p(r1, a1)} L${p(r0, a1)} A${r0} ${r0} 0 ${big} 0 ${p(r0, a0)}Z`;
-};
 const skMedal = (color, size = 34) => `<svg class="kid-medal" viewBox="0 0 34 40" width="${size}" height="${size * 40 / 34}" aria-hidden="true"><path d="M9 0h7l-3 14H6zM18 0h7l3 14h-7z" fill="${color}"/><circle cx="17" cy="25" r="13" fill="#FFC83D" stroke="#F0A800" stroke-width="2"/><path d="m17 17.5 2.3 4.7 5.2.8-3.8 3.6.9 5.1-4.6-2.4-4.6 2.4.9-5.1-3.8-3.6 5.2-.8z" fill="#fff"/></svg>`;
-function skKidPie(si) {
-  const D = skKidData(si), total = D.reduce((a, x) => a + x.skills.length, 0), medals = D.reduce((a, x) => a + x.medal, 0);
-  const sel = D.find(x => x.g.id === S.pie.g);
-  const C = 150, R0 = 44, R1 = 138, GAP = 0.025;
-  let a = 0;
-  const slices = D.map(x => {
-    const span = x.skills.length / total * Math.PI * 2, a0 = a + GAP, a1 = a + span - GAP; a += span;
-    const n = x.skills.length, rOf = f => R0 + (R1 - R0) * f, on = sel && sel.g.id === x.g.id, dim = sel && !on;
-    const mid = (a0 + a1) / 2, off = on ? 6 : 0, dx = (off * Math.sin(mid)).toFixed(1), dy = (-off * Math.cos(mid)).toFixed(1);
-    const badge = x.medal ? `<g transform="translate(${(C + (R1 - 16) * Math.sin(mid)).toFixed(1)} ${(C - (R1 - 16) * Math.cos(mid)).toFixed(1)})"><circle r="11" fill="#fff"/><text text-anchor="middle" dy="4.5" font-size="12" font-weight="800" fill="#B07800">${x.medal}</text></g>` : '';
-    return `<g class="kid-slice" data-action="sPie" data-g="${x.g.id}" transform="translate(${dx} ${dy})" opacity="${dim ? 0.45 : 1}">
-      <path d="${skArc(C, C, R0, R1, a0, a1)}" fill="#EEEBF8"/>
-      ${x.medal + x.learn ? `<path d="${skArc(C, C, R0, rOf((x.medal + x.learn) / n), a0, a1)}" fill="${x.g.color}" opacity=".32"/>` : ''}
-      ${x.medal ? `<path d="${skArc(C, C, R0, rOf(x.medal / n), a0, a1)}" fill="${x.g.color}"/>` : ''}
-      ${on ? `<path d="${skArc(C, C, R0, R1, a0, a1)}" fill="none" stroke="#101828" stroke-width="2"/>` : ''}${badge}</g>`;
-  }).join('');
-  const pie = `<svg class="kid-pie" viewBox="0 0 300 300" width="262" height="262" role="img" aria-label="Мои навыки по темам">${slices}
-    <circle cx="${C}" cy="${C}" r="${R0 - 4}" fill="#fff"/><text x="${C}" y="${C - 2}" text-anchor="middle" font-size="26" font-weight="800" fill="#101828">${medals}</text>
-    <text x="${C}" y="${C + 16}" text-anchor="middle" font-size="11" font-weight="600" fill="#6B6F86">из ${total} медалей</text></svg>`;
-  const legend = `<div class="kid-legend"><span><i style="background:var(--p)"></i>Освоено</span><span><i style="background:var(--p);opacity:.32"></i>Учусь</span><span><i style="background:#EEEBF8"></i>Скоро</span></div>`;
+const skKidItem = (si, n, icon) => `<button class="kid-li" data-action="kSkSel" data-id="${n.id}">${icon || skDot(skStatusOf(skScore(si, n.id)))}<span>${skEsc(n.title)}</span></button>`;
+const skKidMedalCache = new Map();
+function skKidMedals(si) {
+  const key = si + ':' + skNow();
+  if (!skKidMedalCache.has(key)) skKidMedalCache.set(key, new Set(SKD.skills.filter(s => s.grade === 4 && skKidSkill(si, s).st === 'medal').map(s => s.id)));
+  return skKidMedalCache.get(key);
+}
+function skKidMap(si) {
+  const M = skModel('skill'), { sel } = skSelInfo(M, 'skill', S.kidSk.sel);
+  const kids = SKD.skills.filter(s => s.grade === 4 && s.crit.some(c => c.first != null)).map(s => skKidSkill(si, s));
+  const medals = kids.filter(k => k.st === 'medal');
+  const legend = ['ok', 'mid', 'gap', 'none'].map(k => `<span>${skDot(k)}${SK_KID_ST[k]}</span>`).join('') + '<span><i class="kid-ring-lg"></i>Медаль</span>';
   let panel;
   if (!sel) {
-    const won = D.flatMap(x => x.skills.filter(k => k.st === 'medal').map(k => [x.g, k]));
-    panel = `<div class="kid-panel"><b class="kid-h">Мои медали · ${won.length}</b>
-      ${won.length ? `<div class="kid-shelf">${won.map(([g, k]) => `<button class="kid-won" data-action="sPie" data-g="${g.id}" data-s="${k.s.id}">${skMedal(g.color, 30)}<span>${skEsc(k.s.name)}</span></button>`).join('')}</div>` : '<p class="muted">Освой навык полностью — и получишь первую медаль!</p>'}
-      <p class="muted kid-tip">Нажми на кусочек круга — увидишь, какие навыки в нём и что осталось до медали.</p></div>`;
+    const weak = [...M.nodes.values()].filter(n => skStatusOf(skScore(si, n.id)) === 'gap').sort((a, b) => a.order - b.order).slice(0, 3);
+    panel = `<b class="kid-h">${skMedal('#5800e5', 22)} Медалей: ${medals.length} из ${kids.length}</b>
+      <p class="muted kid-tip">Каждая точка — навык. Нажми на точку — увидишь, на что он опирается и что откроет.</p>
+      ${weak.length ? `<div class="kid-sub">Повтори в первую очередь</div>${weak.map(n => skKidItem(si, n)).join('')}` : ''}
+      <div class="kid-sub">Мои медали</div>${medals.length ? medals.map(k => skKidItem(si, M.nodes.get(k.s.id), skMedal(skGroupOf(k.s.id).color, 14))).join('') : '<p class="muted kid-tip">Освой навык полностью — и получишь первую медаль!</p>'}`;
   } else {
-    const rows = sel.skills.map(k => {
-      const open = S.pie.s === k.s.id;
-      const icon = k.st === 'medal' ? skMedal(sel.g.color, 26) : k.st === 'learn' ? `<span class="kid-ring" style="--c:${sel.g.color};--pc:${k.done / k.total * 100}%"></span>` : '<span class="kid-lock">🔒</span>';
-      const dots = k.total ? `<span class="kid-dots">${Array.from({ length: k.total }, (_, j) => `<i style="${j < k.done ? `background:${sel.g.color}` : ''}"></i>`).join('')}</span>` : '';
-      const more = !open ? '' : k.st === 'medal' ? '<div class="kid-more ok">Все задания этого навыка решены — медаль твоя!</div>'
-        : k.st === 'soon' ? '<div class="kid-more">Этот навык ждёт тебя на следующих уроках.</div>'
-        : `<div class="kid-more">Освоено ${k.done} из ${k.total} — до медали ещё ${k.total - k.done}. ${k.next ? `Потренируйся: ${skEsc(k.next.text.replace(/\s*\(.*$/, ''))}.` : 'Дальше — на следующих уроках.'}</div>`;
-      return `<button class="kid-skill ${k.st} ${open ? 'open' : ''}" data-action="sPie" data-g="${sel.g.id}" data-s="${open ? '' : k.s.id}">${icon}<span class="kid-name">${skEsc(k.s.name)}</span>${dots}</button>${more}`;
-    }).join('');
-    panel = `<div class="kid-panel"><div class="row between"><b class="kid-h"><i class="kid-dot" style="background:${sel.g.color}"></i>${sel.g.name}</b><button class="kid-x" data-action="sPie" data-g="">✕</button></div>
-      <p class="muted xs" style="margin:2px 0 8px">Медалей ${sel.medal} из ${sel.skills.length} · учусь ${sel.learn}</p>${rows}</div>`;
+    const n = M.nodes.get(sel), s = n.skill, v = skScore(si, sel), st = skStatusOf(v), k = s.grade === 4 ? skKidSkill(si, s) : null;
+    const pre = (M.pre.get(sel) || []).map(e => M.nodes.get(e.s)), post = (M.post.get(sel) || []).map(e => M.nodes.get(e.t));
+    const note = !k ? 'Этот навык из 3 класса — на нём строятся новые темы.'
+      : k.st === 'medal' ? 'Все задания этого навыка решены — медаль твоя!'
+      : k.st === 'soon' ? 'Этот навык ждёт тебя на следующих уроках.'
+      : `Освоено ${k.done} из ${k.total} — до медали ещё ${k.total - k.done}. ${k.next ? `Потренируйся: ${skEsc(k.next.text.replace(/\s*\(.*$/, ''))}.` : 'Дальше — на следующих уроках.'}`;
+    panel = `<div class="row between" style="gap:8px"><span class="kid-eyebrow"><i style="background:${n.group.color}"></i>${n.group.name}</span><button class="kid-x" data-action="kSkSel" data-id="">✕</button></div>
+      <b class="kid-h">${k?.st === 'medal' ? skMedal(n.group.color, 24) : ''}${skEsc(s.name)}</b>
+      <span class="sk-pill">${skDot(st)}${SK_KID_ST[st]}${v == null ? '' : ' · ' + skPct(v)}</span>
+      <div class="kid-more ${k?.st === 'medal' ? 'ok' : ''}">${note}</div>
+      ${pre.length ? `<div class="kid-sub">Опирается на</div>${pre.map(p => skKidItem(si, p)).join('')}` : ''}
+      ${post.length ? `<div class="kid-sub">Откроет</div>${post.map(p => skKidItem(si, p)).join('')}` : ''}`;
   }
-  return `<div class="kid-wrap"><div class="kid-left">${pie}${legend}</div>${panel}</div>`;
+  return `<div class="kid-wrap"><div class="kid-left"><canvas class="skcv kid" data-kid aria-label="Мои навыки: точки — навыки, линии — на что они опираются"></canvas><div class="kid-legend">${legend}</div></div><div class="kid-panel">${panel}</div></div>`;
 }
