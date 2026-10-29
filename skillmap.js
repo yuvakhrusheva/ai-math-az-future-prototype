@@ -45,7 +45,7 @@ function skResults() {
   const preOf = new Map(); SKD.edges.forEach(e => (preOf.get(e.t) || preOf.set(e.t, []).get(e.t)).push(e.s));
   const sig = x => 1 / (1 + Math.exp(-x));
   skSim = STUDENTS.map((name, i) => {
-    const ab = (classMetrics(i).overall - 70) / 11, sc = {};
+    const ab = (classMetrics(i).overall - 66) / 16, sc = {};
     for (const c of studied) {
       const ps = (preOf.get(c.id) || []).filter(p => sc[p] != null);
       const pm = ps.length ? ps.reduce((s, p) => s + sc[p], 0) / ps.length / 100 : 0.75;
@@ -239,4 +239,68 @@ function skSection(si) {
         <div class="sk-h">${si == null ? 'Узкие места класса' : 'Главные пробелы'} · что блокирует больше всего</div>
         ${top.map(x => skItem(x.n, `${skPct(x.v)} · ведёт к ${x.d}`, si)).join('') || '<p class="muted xs">Пробелов нет</p>'}
         <p class="muted xs" style="margin-top:10px">Цвет точки — ${si == null ? 'средний результат класса' : 'результат ученика'}: от 75% — освоено, 55–74% — закрепить, ниже — пробел. Результаты смоделированы.</p></div></div></div>`;
+}
+
+// ---------- Student tablet: «Мои навыки» pie (ALEKS-like) ----------
+// One slice per topic group, slice size = number of skills; the slice fills from the centre with mastered skills
+// (full colour) and skills in progress (light). A skill earns a medal when every criterion taught in the course is mastered.
+const SK_KID_GROUPS = SK_GROUPS.filter(g => g.id !== 'g3');
+function skKidSkill(si, s) {
+  const R = skResults()[si], taught = s.crit.filter(c => c.first != null);
+  const done = taught.filter(c => R[c.id] != null && R[c.id] >= 75).length, studied = taught.filter(c => R[c.id] != null).length;
+  const st = taught.length && done === taught.length ? 'medal' : studied ? 'learn' : 'soon';
+  const next = taught.find(c => !(R[c.id] >= 75));
+  return { s, st, done, total: taught.length, studied, next: next && R[next.id] != null ? next : null };
+}
+function skKidData(si) {
+  return SK_KID_GROUPS.map(g => {
+    const skills = SKD.skills.filter(s => s.grade === 4 && skGroupOf(s.id) === g && s.crit.some(c => c.first != null)).map(s => skKidSkill(si, s));
+    return { g, skills, medal: skills.filter(x => x.st === 'medal').length, learn: skills.filter(x => x.st === 'learn').length };
+  }).filter(x => x.skills.length);
+}
+const skArc = (cx, cy, r0, r1, a0, a1) => {
+  const p = (r, a) => `${(cx + r * Math.sin(a)).toFixed(1)} ${(cy - r * Math.cos(a)).toFixed(1)}`, big = a1 - a0 > Math.PI ? 1 : 0;
+  return `M${p(r0, a0)} L${p(r1, a0)} A${r1} ${r1} 0 ${big} 1 ${p(r1, a1)} L${p(r0, a1)} A${r0} ${r0} 0 ${big} 0 ${p(r0, a0)}Z`;
+};
+const skMedal = (color, size = 34) => `<svg class="kid-medal" viewBox="0 0 34 40" width="${size}" height="${size * 40 / 34}" aria-hidden="true"><path d="M9 0h7l-3 14H6zM18 0h7l3 14h-7z" fill="${color}"/><circle cx="17" cy="25" r="13" fill="#FFC83D" stroke="#F0A800" stroke-width="2"/><path d="m17 17.5 2.3 4.7 5.2.8-3.8 3.6.9 5.1-4.6-2.4-4.6 2.4.9-5.1-3.8-3.6 5.2-.8z" fill="#fff"/></svg>`;
+function skKidPie(si) {
+  const D = skKidData(si), total = D.reduce((a, x) => a + x.skills.length, 0), medals = D.reduce((a, x) => a + x.medal, 0);
+  const sel = D.find(x => x.g.id === S.pie.g);
+  const C = 150, R0 = 44, R1 = 138, GAP = 0.025;
+  let a = 0;
+  const slices = D.map(x => {
+    const span = x.skills.length / total * Math.PI * 2, a0 = a + GAP, a1 = a + span - GAP; a += span;
+    const n = x.skills.length, rOf = f => R0 + (R1 - R0) * f, on = sel && sel.g.id === x.g.id, dim = sel && !on;
+    const mid = (a0 + a1) / 2, off = on ? 6 : 0, dx = (off * Math.sin(mid)).toFixed(1), dy = (-off * Math.cos(mid)).toFixed(1);
+    const badge = x.medal ? `<g transform="translate(${(C + (R1 - 16) * Math.sin(mid)).toFixed(1)} ${(C - (R1 - 16) * Math.cos(mid)).toFixed(1)})"><circle r="11" fill="#fff"/><text text-anchor="middle" dy="4.5" font-size="12" font-weight="800" fill="#B07800">${x.medal}</text></g>` : '';
+    return `<g class="kid-slice" data-action="sPie" data-g="${x.g.id}" transform="translate(${dx} ${dy})" opacity="${dim ? 0.45 : 1}">
+      <path d="${skArc(C, C, R0, R1, a0, a1)}" fill="#EEEBF8"/>
+      ${x.medal + x.learn ? `<path d="${skArc(C, C, R0, rOf((x.medal + x.learn) / n), a0, a1)}" fill="${x.g.color}" opacity=".32"/>` : ''}
+      ${x.medal ? `<path d="${skArc(C, C, R0, rOf(x.medal / n), a0, a1)}" fill="${x.g.color}"/>` : ''}
+      ${on ? `<path d="${skArc(C, C, R0, R1, a0, a1)}" fill="none" stroke="#101828" stroke-width="2"/>` : ''}${badge}</g>`;
+  }).join('');
+  const pie = `<svg class="kid-pie" viewBox="0 0 300 300" width="262" height="262" role="img" aria-label="Мои навыки по темам">${slices}
+    <circle cx="${C}" cy="${C}" r="${R0 - 4}" fill="#fff"/><text x="${C}" y="${C - 2}" text-anchor="middle" font-size="26" font-weight="800" fill="#101828">${medals}</text>
+    <text x="${C}" y="${C + 16}" text-anchor="middle" font-size="11" font-weight="600" fill="#6B6F86">из ${total} медалей</text></svg>`;
+  const legend = `<div class="kid-legend"><span><i style="background:var(--p)"></i>Освоено</span><span><i style="background:var(--p);opacity:.32"></i>Учусь</span><span><i style="background:#EEEBF8"></i>Скоро</span></div>`;
+  let panel;
+  if (!sel) {
+    const won = D.flatMap(x => x.skills.filter(k => k.st === 'medal').map(k => [x.g, k]));
+    panel = `<div class="kid-panel"><b class="kid-h">Мои медали · ${won.length}</b>
+      ${won.length ? `<div class="kid-shelf">${won.map(([g, k]) => `<button class="kid-won" data-action="sPie" data-g="${g.id}" data-s="${k.s.id}">${skMedal(g.color, 30)}<span>${skEsc(k.s.name)}</span></button>`).join('')}</div>` : '<p class="muted">Освой навык полностью — и получишь первую медаль!</p>'}
+      <p class="muted kid-tip">Нажми на кусочек круга — увидишь, какие навыки в нём и что осталось до медали.</p></div>`;
+  } else {
+    const rows = sel.skills.map(k => {
+      const open = S.pie.s === k.s.id;
+      const icon = k.st === 'medal' ? skMedal(sel.g.color, 26) : k.st === 'learn' ? `<span class="kid-ring" style="--c:${sel.g.color};--pc:${k.done / k.total * 100}%"></span>` : '<span class="kid-lock">🔒</span>';
+      const dots = k.total ? `<span class="kid-dots">${Array.from({ length: k.total }, (_, j) => `<i style="${j < k.done ? `background:${sel.g.color}` : ''}"></i>`).join('')}</span>` : '';
+      const more = !open ? '' : k.st === 'medal' ? '<div class="kid-more ok">Все задания этого навыка решены — медаль твоя!</div>'
+        : k.st === 'soon' ? '<div class="kid-more">Этот навык ждёт тебя на следующих уроках.</div>'
+        : `<div class="kid-more">Освоено ${k.done} из ${k.total} — до медали ещё ${k.total - k.done}. ${k.next ? `Потренируйся: ${skEsc(k.next.text.replace(/\s*\(.*$/, ''))}.` : 'Дальше — на следующих уроках.'}</div>`;
+      return `<button class="kid-skill ${k.st} ${open ? 'open' : ''}" data-action="sPie" data-g="${sel.g.id}" data-s="${open ? '' : k.s.id}">${icon}<span class="kid-name">${skEsc(k.s.name)}</span>${dots}</button>${more}`;
+    }).join('');
+    panel = `<div class="kid-panel"><div class="row between"><b class="kid-h"><i class="kid-dot" style="background:${sel.g.color}"></i>${sel.g.name}</b><button class="kid-x" data-action="sPie" data-g="">✕</button></div>
+      <p class="muted xs" style="margin:2px 0 8px">Медалей ${sel.medal} из ${sel.skills.length} · учусь ${sel.learn}</p>${rows}</div>`;
+  }
+  return `<div class="kid-wrap"><div class="kid-left">${pie}${legend}</div>${panel}</div>`;
 }

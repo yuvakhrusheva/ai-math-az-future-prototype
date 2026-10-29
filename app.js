@@ -84,7 +84,8 @@ function freshState() {
     review: { idx: 0, marks: PHOTO_WORKS.map(w => [...w.ai]), confirmed: PHOTO_WORKS.map(() => false) },
     classStudent: null, audio: 'none', studentPage: 'home', redo: false,
     past: null, pastTab: 'mat', modOpen: {}, classTab: 'main', mapTab: 'topics', cardTab: 'perf',
-    sk: { mode: 'crit', sel: null, student: null },   // skills map: points are criteria or skills, selected point        // past lesson opened from the thematic plan
+    sk: { mode: 'crit', sel: null, student: null },
+    pie: { g: null, s: null },                      // student «Мои навыки» pie: selected slice and skill   // skills map: points are criteria or skills, selected point        // past lesson opened from the thematic plan
     inp: {},                                        // values typed into the tablet boxes, by box id
   };
 }
@@ -179,7 +180,8 @@ const A = {
   // From the class skills map the student card opens on its skills tab with the same point selected.
   openStudent(el) { const fromMap = S.page === 'myclass' && S.classTab === 'skills'; S.page = 'myclass'; S.classTab = 'main'; S.classStudent = +el.dataset.i; S.cardTab = fromMap ? 'skills' : 'perf'; if (!fromMap) S.sk.sel = null; },
   classTab(el) { S.classTab = el.dataset.t; S.classStudent = null; S.sk.sel = null; },
-  sMapTab(el) { S.mapTab = el.dataset.t; },
+  sMapTab(el) { S.mapTab = el.dataset.t; S.pie = { g: null, s: null }; },
+  sPie(el) { S.pie = { g: el.dataset.g || null, s: el.dataset.s || null }; },
   // teacher: review
   mark(el) { const r = S.review; r.marks[r.idx][+el.dataset.k] = !r.marks[r.idx][+el.dataset.k]; },
   confirmWork() { const r = S.review; r.confirmed[r.idx] = true; const next = r.confirmed.findIndex(c => !c); if (next >= 0) r.idx = next; else toast('Все работы проверены'); },
@@ -251,10 +253,10 @@ function advance(i, force) {
 // Demo shortcuts: jump straight to a feature.
 function seed(kind) {
   S = freshState(); S.page = 'live'; const L = S.lesson; L.started = true; L.stageT0 = Date.now();
-  if (['helper', 'bonus', 'hw', 'map'].includes(kind)) S.view = 'open';
+  if (['helper', 'bonus', 'hw', 'map', 'kidskills'].includes(kind)) S.view = 'open';
   const others = (pWrong) => STUDENTS.forEach((_, i) => { if (i !== S.me) answers()[i] = rnd(pWrong) ? 'bad' : 'ok'; });
   if (kind === 'hint') { L.stage = 1; L.stageStarted = true; others(0.5); [0, 3, 5].forEach(i => answers()[i] = 'bad'); answers()[S.me] = 'bad'; }
-  if (kind === 'helper' || kind === 'bonus' || kind === 'hw' || kind === 'map' || kind === 'skills') {
+  if (kind === 'helper' || kind === 'bonus' || kind === 'hw' || kind === 'map' || kind === 'kidskills' || kind === 'skills') {
     L.stage = 1; L.stageStarted = true; L.revealed = true; others(0.5); answers()[S.me] = 'bad';
     L.stage = 2; A.stageStart(); A.simPractice(); A.simPractice();
   }
@@ -265,9 +267,10 @@ function seed(kind) {
     let k = 0; while (!finishedPractice(S.me) && k < 20) practiceAnswer(S.me, k++ !== 2);
     for (let k = 0; k < 3; k++) A.simPractice();
   }
-  if (kind === 'hw' || kind === 'map' || kind === 'skills') { A.endLesson(); }
+  if (kind === 'hw' || kind === 'map' || kind === 'kidskills' || kind === 'skills') { A.endLesson(); }
   if (kind === 'hw') { A.hwConfirm(); S.studentPage = 'hw'; }
   if (kind === 'map') { A.hwConfirm(); S.studentPage = 'map'; }
+  if (kind === 'kidskills') { A.hwConfirm(); S.studentPage = 'map'; S.mapTab = 'skills'; }
   if (kind === 'skills') { A.hwConfirm(); S.page = 'myclass'; S.classStudent = S.me; }
   if (kind === 'skillmap') { L.started = false; S.page = 'myclass'; S.classTab = 'skills'; }
   if (kind === 'review') { L.started = false; S.page = 'review'; }
@@ -781,8 +784,8 @@ function studentScreen(i) {
         return `<div class="mod"><div class="mod-h"><span class="chev">${CHEV}</span><div style="flex:1"><b>${m.module}</b>${m.here ? ' <span class="here">ТЫ ЗДЕСЬ</span>' : ''}<div class="muted xs">${m.lessons.filter(l => (l[2] ?? solved22) >= l[3] && l[3]).length} из ${m.lessons.length} уроков выполнено</div></div><span class="stars">★<span>★★</span></span></div>${rows}</div>`;
       }).join('');
       const mtabs = `<div class="seg-tabs s-tabs"><button class="${S.mapTab === 'topics' ? 'on' : ''}" data-action="sMapTab" data-t="topics">По темам</button><button class="${S.mapTab === 'skills' ? 'on' : ''}" data-action="sMapTab" data-t="skills">По навыкам</button></div>`;
-      const body = S.mapTab === 'skills' ? '<div class="s-soon"><b>Навыки</b><span class="muted">Скоро здесь появятся твои навыки по графу знаний</span></div>' : mods;
-      return [`${sTop('Карта знаний', '', 'home')}<div class="s-body home"><h2 class="s-h2">Карта знаний</h2><div class="muted xs" style="margin-top:-8px">Пройденные и текущие темы · Математика 4 класс</div>${mtabs}${body}</div>`, ''];
+      const body = S.mapTab === 'skills' ? skKidPie(i) : mods;
+      return [`${sTop('Карта знаний', '', 'home')}<div class="s-body home"><div class="row between wrap" style="gap:8px"><div><h2 class="s-h2">Карта знаний</h2><div class="muted xs">${S.mapTab === 'skills' ? 'Мои навыки и медали' : 'Пройденные и текущие темы'} · Математика 4 класс</div></div>${mtabs}</div>${body}</div>`, ''];
     }
     if (S.studentPage === 'redo') {
       const t = S.cur[i];
